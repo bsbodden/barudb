@@ -1,1 +1,7 @@
 /target
+server_output.txt
+generator/.DS_Store
+generator/generator
+generator/workload.txt
+.idea/cs265-lsm-tree.iml
+.DS_Store

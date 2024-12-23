@@ -10,16 +10,27 @@ fn send_command(stream: &mut TcpStream, command: &str) -> io::Result<()> {
 }
 
 fn receive_response(stream: &mut TcpStream) -> io::Result<String> {
-    // Read length prefix (4 bytes for u32)
-    let mut len_bytes = [0u8; 4];
-    stream.read_exact(&mut len_bytes)?;
-    let length = u32::from_be_bytes(len_bytes) as usize;
+    let mut response = String::new();
+    let mut buffer = [0u8; 1024];
 
-    // Read the actual response
-    let mut buffer = vec![0u8; length];
-    stream.read_exact(&mut buffer)?;
-
-    String::from_utf8(buffer).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+    loop {
+        match stream.read(&mut buffer) {
+            Ok(0) => return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "Connection closed")),
+            Ok(n) => {
+                response.push_str(&String::from_utf8_lossy(&buffer[..n]));
+                if response.ends_with(lsm_tree::END_OF_MESSAGE) {
+                    // Remove the END_OF_MESSAGE marker and return
+                    response.truncate(response.len() - lsm_tree::END_OF_MESSAGE.len());
+                    return Ok(response);
+                }
+            }
+            Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+                continue;
+            }
+            Err(e) => return Err(e),
+        }
+    }
 }
 
 fn main() -> io::Result<()> {
