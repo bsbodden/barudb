@@ -1,8 +1,8 @@
-use std::sync::{Arc, RwLock};
-use crate::memtable::Memtable;
-use crate::types::{Key, Value, Result, TOMBSTONE};
-use crate::run::Run;
 use crate::level::Level;
+use crate::memtable::Memtable;
+use crate::run::Run;
+use crate::types::{Key, Result, Value, TOMBSTONE};
+use std::sync::{Arc, RwLock};
 
 pub struct LSMTree {
     buffer: Arc<RwLock<Memtable>>,
@@ -19,7 +19,7 @@ impl LSMTree {
 
     pub fn put(&mut self, key: Key, value: Value) -> Result<()> {
         let flush_required = {
-            let mut buffer = self.buffer.write().unwrap();
+            let buffer = self.buffer.write().unwrap();
             let result = buffer.put(key, value);
             result.is_ok() && buffer.is_full()
         };
@@ -76,16 +76,15 @@ impl LSMTree {
 
     fn flush_buffer_to_level0(&mut self) -> Result<()> {
         let data = {
-            let mut buffer = self.buffer.write().unwrap();
-            let data = buffer.as_map().iter().map(|(&k, &v)| (k, v)).collect(); // Convert BTreeMap to Vec
+            let buffer = self.buffer.write().unwrap();
+            let data = buffer.take_all(); // Get copy of all data
             buffer.clear();
             data
         };
 
         let run = Run::new(data);
         if self.levels.is_empty() {
-            // Create Level 0 if it doesn't exist
-            self.levels.push(Level::new()); // Remove the argument here
+            self.levels.push(Level::new());
         }
         self.levels[0].add_run(run);
         Ok(())
