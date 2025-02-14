@@ -1,10 +1,10 @@
 pub mod command;
-pub mod memtable;
-pub mod types;
-pub mod lsm_tree;
-pub mod test_helpers;
-mod run;
 mod level;
+pub mod lsm_tree;
+pub mod memtable;
+mod run;
+pub mod test_helpers;
+pub mod types;
 
 // Constants
 pub const DEFAULT_PORT: u16 = 8080;

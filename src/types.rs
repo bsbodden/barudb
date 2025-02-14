@@ -17,10 +17,7 @@ pub enum Error {
     /// Key not found in the tree
     KeyNotFound(Key),
     /// Range query with invalid bounds
-    InvalidRange {
-        start: Key,
-        end: Key,
-    },
+    InvalidRange { start: Key, end: Key },
     /// Buffer has reached capacity
     BufferFull,
     /// Error during compaction
@@ -32,8 +29,7 @@ impl std::fmt::Display for Error {
         match self {
             Error::Io(e) => write!(f, "I/O error: {}", e),
             Error::KeyNotFound(k) => write!(f, "Key not found: {}", k),
-            Error::InvalidRange { start, end } =>
-                write!(f, "Invalid range: {} > {}", start, end),
+            Error::InvalidRange { start, end } => write!(f, "Invalid range: {} > {}", start, end),
             Error::BufferFull => write!(f, "Buffer is full"),
             Error::CompactionError => write!(f, "Error during compaction"),
         }

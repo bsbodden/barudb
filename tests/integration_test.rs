@@ -1,12 +1,12 @@
-// tests/integration_test.rs
-use tokio::net::TcpStream;
+use once_cell::sync::Lazy;
+use std::io::Write;
 use std::net::TcpListener;
 use std::process::{Child, Command};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use std::time::Duration;
-use once_cell::sync::Lazy;
 use std::sync::Mutex;
-use std::io::Write;
+use std::time::Duration;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+// tests/integration_test.rs
+use tokio::net::TcpStream;
 
 static NEXT_PORT: Lazy<Mutex<u16>> = Lazy::new(|| Mutex::new(8080));
 

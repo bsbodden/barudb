@@ -3,9 +3,9 @@ name = "generator"
 version = "0.1.0"
 description = "Workload generator for an LSM tree"
 authors = [
-    {name = "Brian Sam-Bodden",email = "bsb@redis.com"}
+    { name = "Brian Sam-Bodden", email = "bsb@redis.com" }
 ]
-license = {text = "MIT"}
+license = { text = "MIT" }
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [

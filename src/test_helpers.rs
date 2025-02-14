@@ -1,11 +1,11 @@
 // in test_helpers.rs
-use std::process::{Command, Child};
-use tokio::net::TcpStream;
 use std::net::TcpListener;
-use tokio::io::{AsyncWriteExt, AsyncReadExt};
-use tokio::time::{sleep, Duration};
+use std::process::{Child, Command};
 use std::sync::atomic::{AtomicU16, Ordering};
 use std::time::Instant;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpStream;
+use tokio::time::{sleep, Duration};
 
 use crate::END_OF_MESSAGE;
 
@@ -19,7 +19,7 @@ async fn wait_for_port_available(port: u16) -> bool {
             Ok(listener) => {
                 drop(listener);
                 return true;
-            },
+            }
             Err(_) => {
                 sleep(Duration::from_millis(100)).await;
             }
@@ -98,7 +98,10 @@ pub async fn start_server() -> (Child, u16) {
 
     // If we get here, server failed to start
     let _ = server.kill();
-    panic!("Server failed to start listening on port {} after {:?}", port, timeout);
+    panic!(
+        "Server failed to start listening on port {} after {:?}",
+        port, timeout
+    );
 }
 
 pub async fn send_command(port: u16, command: &str) -> String {
@@ -106,7 +109,9 @@ pub async fn send_command(port: u16, command: &str) -> String {
     while attempts > 0 {
         match TcpStream::connect(format!("127.0.0.1:{}", port)).await {
             Ok(mut stream) => {
-                stream.write_all(command.as_bytes()).await
+                stream
+                    .write_all(command.as_bytes())
+                    .await
                     .expect("Failed to send command");
 
                 let mut response = String::new();
@@ -148,8 +153,8 @@ pub async fn shutdown_server(mut server: Child, port: u16) {
                 }
                 sleep(Duration::from_millis(100)).await;
             }
-        },
-        _ => ()  // Failed to get proper shutdown response
+        }
+        _ => (), // Failed to get proper shutdown response
     }
 
     // Force kill if graceful shutdown failed

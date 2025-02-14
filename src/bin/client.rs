@@ -15,7 +15,12 @@ fn receive_response(stream: &mut TcpStream) -> io::Result<String> {
 
     loop {
         match stream.read(&mut buffer) {
-            Ok(0) => return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "Connection closed")),
+            Ok(0) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    "Connection closed",
+                ))
+            }
             Ok(n) => {
                 response.push_str(&String::from_utf8_lossy(&buffer[..n]));
                 if response.ends_with(lsm_tree::END_OF_MESSAGE) {

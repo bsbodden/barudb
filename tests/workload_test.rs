@@ -1,4 +1,4 @@
-use lsm_tree::test_helpers::{start_server, send_command};
+use lsm_tree::test_helpers::{send_command, start_server};
 
 #[tokio::test]
 async fn test_workload_execution() {
