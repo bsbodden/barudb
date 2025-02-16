@@ -1,15 +1,12 @@
-mod speed_db;
-pub use self::speed_db::SpeedDbDynamicBloom;
-
 use std::sync::atomic::{AtomicU64, Ordering};
 
-pub struct Bloom {
+pub struct SpeedDbDynamicBloom {
     len: u32, // Length in 64-bit words
     num_double_probes: u32,
     data: Box<[AtomicU64]>,
 }
 
-impl Bloom {
+impl SpeedDbDynamicBloom {
     pub fn new(total_bits: u32, num_probes: u32) -> Self {
         // Same as before - this part looks correct
         assert!(num_probes <= 10);
@@ -150,7 +147,7 @@ mod tests {
 
     #[test]
     fn test_empty_filter() {
-        let bloom = Bloom::new(100, 2);
+        let bloom = SpeedDbDynamicBloom::new(100, 2);
         assert!(!bloom.may_contain(0));
         assert!(!bloom.may_contain(1));
         assert!(!bloom.may_contain(100));
@@ -158,7 +155,7 @@ mod tests {
 
     #[test]
     fn test_basic_operations() {
-        let bloom = Bloom::new(100, 2);
+        let bloom = SpeedDbDynamicBloom::new(100, 2);
 
         bloom.add_hash(1);
         bloom.add_hash(2);
@@ -174,7 +171,7 @@ mod tests {
 
     #[test]
     fn test_concurrent_add() {
-        let bloom = Bloom::new(100, 2);
+        let bloom = SpeedDbDynamicBloom::new(100, 2);
 
         bloom.add_hash_concurrently(1);
         bloom.add_hash_concurrently(2);
@@ -187,7 +184,7 @@ mod tests {
     #[test]
     fn test_different_sizes() {
         for bits in [64, 128, 256, 512, 1024] {
-            let bloom = Bloom::new(bits, 6);
+            let bloom = SpeedDbDynamicBloom::new(bits, 6);
 
             bloom.add_hash(1);
             bloom.add_hash(2);
@@ -200,7 +197,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "assertion failed: num_probes <= 10")]
     fn test_invalid_num_probes_too_large() {
-        Bloom::new(100, 12);
+        SpeedDbDynamicBloom::new(100, 12);
     }
 
     #[test]
@@ -228,7 +225,7 @@ mod tests {
 
     #[test]
     fn test_hash_distribution() {
-        let bloom = Bloom::new(1024, 6);
+        let bloom = SpeedDbDynamicBloom::new(1024, 6);
         let mut bit_counts = vec![0; 64]; // Track 64 bits per word
 
         // Insert test keys and count which bits get set
@@ -262,7 +259,7 @@ mod tests {
     #[test]
     fn test_false_positive_rate() {
         // Use more bits for better accuracy
-        let bloom = Bloom::new(2048, 6); // ~20 bits per key
+        let bloom = SpeedDbDynamicBloom::new(2048, 6); // ~20 bits per key
 
         // Add 100 sequential keys with good mixing
         for i in 0..100 {
@@ -295,7 +292,7 @@ mod tests {
             let total_bits = (bits_per_key * num_keys) as u32;
             let num_probes = if bits_per_key < 8 { 4 } else { 6 };
 
-            let bloom = Bloom::new(total_bits, num_probes);
+            let bloom = SpeedDbDynamicBloom::new(total_bits, num_probes);
 
             for i in 0..num_keys {
                 let mut hasher = DefaultHasher::new();
@@ -339,7 +336,7 @@ mod tests {
     fn test_varying_lengths() {
         for length in 1..=25 {
             let bits = length * 10;
-            let bloom = Bloom::new(bits as u32, 6);
+            let bloom = SpeedDbDynamicBloom::new(bits as u32, 6);
 
             // Add elements
             for i in 0..length {
@@ -386,7 +383,7 @@ mod tests {
         let keys_per_thread = 8 * 1024 * 1024;
         let total_bits = (keys_per_thread * num_threads * 10) as u32;
 
-        let bloom = Arc::new(Bloom::new(total_bits, 6));
+        let bloom = Arc::new(SpeedDbDynamicBloom::new(total_bits, 6));
         let mut threads = vec![];
 
         // Add elements concurrently
@@ -432,7 +429,7 @@ mod tests {
             let num_keys = m * 8 * 1024 * 1024;
             println!("Testing {} million keys", m * 8);
 
-            let bloom = Bloom::new((num_keys * 10) as u32, 6);
+            let bloom = SpeedDbDynamicBloom::new((num_keys * 10) as u32, 6);
 
             // Measure add performance
             let start = Instant::now();
@@ -469,7 +466,7 @@ mod tests {
             let total_bits = num_entries * bits_per_key;
 
             // Create filter with same parameters as SpeedDB test
-            let bloom = Bloom::new(total_bits as u32, 6);
+            let bloom = SpeedDbDynamicBloom::new(total_bits as u32, 6);
 
             // Add entries using SpeedDB's key pattern
             for i in 0..num_entries {

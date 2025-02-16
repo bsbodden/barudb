@@ -1,5 +1,5 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
-use lsm_tree::bloom::DynamicBloom;
+use lsm_tree::bloom::{Bloom, SpeedDbDynamicBloom};
 use fastbloom::BloomFilter;
 use rand::{rngs::StdRng, Rng, SeedableRng};
 
@@ -27,15 +27,24 @@ fn bench_bloom_filters(c: &mut Criterion) {
             .collect();
 
         // Create filters
-        let dynamic_bloom = DynamicBloom::new(total_bits as u32, 6);
+        let speed_db_bloom = SpeedDbDynamicBloom::new(total_bits as u32, 6);
+        let bloom = Bloom::new(total_bits as u32, 6);
         let fast_bloom = BloomFilter::with_num_bits(total_bits)
             .expected_items(size);
 
         // Benchmark insertions
-        group.bench_function(BenchmarkId::new("dynamic_insert", size), |b| {
+        group.bench_function(BenchmarkId::new("speeddb_insert", size), |b| {
             b.iter(|| {
                 for item in &items {
-                    dynamic_bloom.add_hash(item.parse::<u32>().unwrap());
+                    speed_db_bloom.add_hash(item.parse::<u32>().unwrap());
+                }
+            })
+        });
+
+        group.bench_function(BenchmarkId::new("bloom_insert", size), |b| {
+            b.iter(|| {
+                for item in &items {
+                    bloom.add_hash(item.parse::<u32>().unwrap());
                 }
             })
         });
@@ -55,14 +64,23 @@ fn bench_bloom_filters(c: &mut Criterion) {
             populated_fast_bloom.insert(item);
         }
         for item in &items {
-            dynamic_bloom.add_hash(item.parse::<u32>().unwrap());
+            speed_db_bloom.add_hash(item.parse::<u32>().unwrap());
+            bloom.add_hash(item.parse::<u32>().unwrap());
         }
 
         // Benchmark lookups
-        group.bench_function(BenchmarkId::new("dynamic_lookup", size), |b| {
+        group.bench_function(BenchmarkId::new("speeddb_lookup", size), |b| {
             b.iter(|| {
                 for item in &lookup_items {
-                    let _ = dynamic_bloom.may_contain(item.parse::<u32>().unwrap());
+                    let _ = speed_db_bloom.may_contain(item.parse::<u32>().unwrap());
+                }
+            })
+        });
+
+        group.bench_function(BenchmarkId::new("bloom_lookup", size), |b| {
+            b.iter(|| {
+                for item in &lookup_items {
+                    let _ = bloom.may_contain(item.parse::<u32>().unwrap());
                 }
             })
         });
@@ -81,11 +99,23 @@ fn bench_bloom_filters(c: &mut Criterion) {
             .map(|n| n.to_string())
             .collect();
 
-        group.bench_function(BenchmarkId::new("dynamic_fp", size), |b| {
+        group.bench_function(BenchmarkId::new("speeddb_fp", size), |b| {
             b.iter(|| {
                 let mut fps = 0;
                 for item in &fp_items {
-                    if dynamic_bloom.may_contain(item.parse::<u32>().unwrap()) {
+                    if speed_db_bloom.may_contain(item.parse::<u32>().unwrap()) {
+                        fps += 1;
+                    }
+                }
+                fps
+            })
+        });
+
+        group.bench_function(BenchmarkId::new("bloom_fp", size), |b| {
+            b.iter(|| {
+                let mut fps = 0;
+                for item in &fp_items {
+                    if bloom.may_contain(item.parse::<u32>().unwrap()) {
                         fps += 1;
                     }
                 }
