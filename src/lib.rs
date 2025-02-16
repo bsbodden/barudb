@@ -5,6 +5,7 @@ pub mod memtable;
 mod run;
 pub mod test_helpers;
 pub mod types;
+pub mod bloom;
 
 // Constants
 pub const DEFAULT_PORT: u16 = 8080;
