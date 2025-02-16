@@ -13,5 +13,14 @@ rand = "0.8"
 once_cell = "1.8"
 xxhash-rust = {  version = "0.8.15", features = ["xxh3"] }
 
+[dev-dependencies]
+criterion = { version = "0.5.1", features = ["html_reports"] }
+fastbloom = "0.8.0"
+rand = "0.8.5"
+
+[[bench]]
+name = "bloom_bench"
+harness = false
+
 
 
