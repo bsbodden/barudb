@@ -3,22 +3,43 @@ pub use self::speed_db::SpeedDbDynamicBloom;
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
+/// A cache-efficient Bloom filter implementation with optimized probe patterns.
+///
+/// This implementation uses block-aligned bit vectors with a double probing strategy
+/// that maintains cache locality while providing good bit distribution. Key features:
+/// - Power-of-2 sized blocks for efficient indexing
+/// - Cache-line aligned access patterns
+/// - Optimized hash mixing for probe sequences
+/// - Lock-free concurrent operations using atomic bits
 pub struct Bloom {
-    len: u32, // Length in 64-bit words
-    num_double_probes: u32,
-    data: Box<[AtomicU64]>,
+    len: u32,               // Length in 64-bit words
+    num_double_probes: u32, // Each probe sets two bits, so this is (num_probes + 1) / 2
+    data: Box<[AtomicU64]>, // The underlying bit array stored as atomic words
 }
 
 impl Bloom {
+    /// Creates a new Bloom filter with the specified total bits and number of probes.
+    ///
+    /// The actual size will be rounded up to the nearest block size (512 bits) to ensure
+    /// proper alignment and efficient cache usage. The number of probes is limited to 10
+    /// to balance false positive rate with performance.
+    ///
+    /// # Arguments
+    /// * `total_bits` - Desired size in bits
+    /// * `num_probes` - Number of hash probes per item (max 10)
     pub fn new(total_bits: u32, num_probes: u32) -> Self {
         assert!(num_probes <= 10);
 
-        // Round up to power of 2 blocks
+        // Round up to nearest block size to maintain cache alignment
+        // A block is 512 bits (8 x 64-bit words) to match common cache line sizes
         let block_bits = 512;
-        let min_blocks = std::cmp::max(1, (total_bits + block_bits - 1) / block_bits);
-        let blocks = round_up_pow2(min_blocks + (min_blocks >> 4));
+        let min_bits = std::cmp::max(block_bits, total_bits);
+        let min_blocks = (min_bits + block_bits - 1) / block_bits;
+        // Round blocks to next power of 2 for efficient indexing
+        let blocks = round_up_pow2(min_blocks);
         let len = blocks * (block_bits / 64);
 
+        // Calculate number of double probes - each probe sets two bits
         let num_double_probes = (num_probes + 1) / 2;
         let mut data = Vec::with_capacity(len as usize);
         data.extend((0..len).map(|_| AtomicU64::new(0)));
@@ -30,61 +51,122 @@ impl Bloom {
         }
     }
 
+    /// Maps a 32-bit hash to a word index using optimized multiplicative hashing.
+    ///
+    /// Uses a multiplication by a carefully chosen constant followed by a 64-bit
+    /// multiplication and right shift to achieve good distribution while being
+    /// faster than modulo.
     #[inline(always)]
     fn prepare_hash(&self, h32: u32) -> u32 {
+        // Multiply by golden ratio to improve bit mixing
         let a = h32.wrapping_mul(0x517cc1b7);
-        (a as u64 * self.len as u64 >> 32) as u32
+        // Map to range [0, len) using 64-bit math for better distribution
+        let b = (a as u64).wrapping_mul(self.len as u64);
+        (b >> 32) as u32
     }
 
+    /// Core probe sequence implementation using double probing within cache lines.
+    ///
+    /// For each probe, sets/checks two bits determined by h1 and h2 hash values.
+    /// Uses rotating probes with controlled stepping to maintain cache locality
+    /// while ensuring good bit distribution.
     #[inline(always)]
-    fn double_probe(&self, h32: u32, mut base_offset: usize) -> bool {
+    fn double_probe(&self, h32: u32, base_offset: usize) -> bool {
+        // Initialize two hash values - one is the original, one is mixed
         let mut h1 = h32;
-        let mut h2 = h32.wrapping_mul(0x9e3779b9);
+        let mut h2 = h32.wrapping_mul(0x9e3779b9); // Multiply by golden ratio
         let len_mask = (self.len - 1) as usize;
 
+        // Ensure initial offset is within bounds using power-of-2 size mask
+        let mut offset = base_offset & len_mask;
+
         for _ in 0..self.num_double_probes {
+            // Get two bit positions from lower 6 bits of each hash
             let bit1 = h1 & 63;
             let bit2 = h2 & 63;
+            // Create mask with both bits set
             let mask = (1u64 << bit1) | (1u64 << bit2);
 
-            // Simple linear probing with power-of-2 wraparound
-            let offset = base_offset & len_mask;
-
+            // Check if both bits are set using atomic load
             if (self.data[offset].load(Ordering::Relaxed) & mask) != mask {
                 return false;
             }
 
-            // Advance probes using cheaper operations
+            // Rotate hashes and step to next position while maintaining locality
             h1 = h1.rotate_right(21);
             h2 = h2.rotate_right(11);
-            base_offset = base_offset.wrapping_add(7);
+            offset = (offset.wrapping_add(7)) & len_mask;
         }
         true
     }
 
+    /// Common implementation for adding hash values to the filter.
+    ///
+    /// This function implements the core bit-setting logic used by both regular and concurrent
+    /// insert operations. It uses the same double-probing strategy as lookups but allows
+    /// customization of the atomic operation through a closure.
+    ///
+    /// # Arguments
+    /// * `h32` - The original 32-bit hash value
+    /// * `base_offset` - Starting offset in the bit array (already prepared via prepare_hash)
+    /// * `or_func` - Closure that performs the actual bit setting operation, allowing different
+    ///               atomic strategies for concurrent vs single-threaded access
+    ///
+    /// # Implementation Notes
+    /// - Uses the same probe sequence as double_probe() for consistency
+    /// - Each probe sets two bits to improve false positive rate vs memory usage
+    /// - Maintains cache locality through controlled stepping pattern
+    /// - Hash mixing uses rotation to maintain bit distribution quality
+    /// - Bit positions are kept within single words using 6-bit masks
     #[inline(always)]
     fn add_hash_inner<F>(&self, h32: u32, base_offset: usize, or_func: F)
     where
         F: Fn(&AtomicU64, u64),
     {
+        // Initialize primary hash and create secondary hash via golden ratio mixing
         let mut h1 = h32;
         let mut h2 = h32.wrapping_mul(0x9e3779b9);
         let len_mask = (self.len - 1) as usize;
         let mut offset = base_offset;
 
         for _ in 0..self.num_double_probes {
+            // Extract bit positions using bottom 6 bits of each hash
+            // This confines each bit to a single u64 word (0-63)
             let bit1 = h1 & 63;
             let bit2 = h2 & 63;
+
+            // Create mask with both bits set for atomic operation
             let mask = (1u64 << bit1) | (1u64 << bit2);
 
+            // Apply the atomic operation using the provided closure
+            // offset & len_mask keeps us within the allocated array
             or_func(&self.data[offset & len_mask], mask);
 
+            // Prepare hashes for next probe:
+            // - Rotate h1 and h2 by different amounts to ensure good bit mixing
+            // - Using rotate maintains all bits of entropy unlike shift
             h1 = h1.rotate_right(21);
             h2 = h2.rotate_right(11);
+
+            // Advance to next word with constant stride (7)
+            // This balances cache locality with distribution
             offset = offset.wrapping_add(7);
         }
     }
 
+    /// Add a hash value to the filter.
+    ///
+    /// This is the standard insertion path optimized for single-threaded scenarios.
+    /// It directly uses atomic fetch_or operations as we don't need to check current
+    /// bit values first in a non-concurrent context.
+    ///
+    /// # Arguments
+    /// * `h32` - The 32-bit hash value to insert
+    ///
+    /// # Implementation Notes
+    /// - Uses relaxed memory ordering since bloom filter accuracy is probabilistic anyway
+    /// - Direct fetch_or is faster than load-then-store when we know we need to set bits
+    /// - The operation is still atomic to maintain consistency with concurrent access
     #[inline]
     pub fn add_hash(&self, h32: u32) {
         let a = self.prepare_hash(h32);
@@ -93,6 +175,21 @@ impl Bloom {
         })
     }
 
+    /// Add a hash value with optimized concurrent access.
+    ///
+    /// This version is optimized for heavy concurrent access patterns by reducing
+    /// unnecessary atomic operations. It first checks if bits are already set
+    /// before attempting an atomic update.
+    ///
+    /// # Arguments
+    /// * `h32` - The 32-bit hash value to insert
+    ///
+    /// # Implementation Notes
+    /// - Performs a regular load first to avoid atomic op if bits already set
+    /// - Only uses fetch_or when necessary, reducing contention
+    /// - Still maintains correctness under concurrent access
+    /// - Trade-off between extra load vs expensive atomic operation
+    /// - Particularly beneficial when filter becomes dense
     #[inline]
     pub fn add_hash_concurrently(&self, h32: u32) {
         let a = self.prepare_hash(h32);
@@ -103,12 +200,14 @@ impl Bloom {
         })
     }
 
+    /// Check if a hash value may be in the set.
     #[inline]
     pub fn may_contain(&self, h32: u32) -> bool {
         let a = self.prepare_hash(h32);
         self.double_probe(h32, a as usize)
     }
 
+    // Platform-specific prefetch implementations
     #[cfg(target_arch = "x86_64")]
     pub fn prefetch(&self, h32: u32) {
         let a = self.prepare_hash(h32);
@@ -124,22 +223,21 @@ impl Bloom {
     #[cfg(not(target_arch = "x86_64"))]
     pub fn prefetch(&self, _h32: u32) {}
 
+    /// Calculate theoretical false positive rate for the current configuration.
     pub fn theoretical_fp_rate(&self, num_entries: usize) -> f64 {
         let bits_per_key = (self.len * 64) as f64 / num_entries as f64;
         (1.0 - std::f64::consts::E.powf(-bits_per_key * 0.7)).powi(6)
     }
 
+    /// Get the current memory usage in bytes.
     pub fn memory_usage(&self) -> usize {
         self.data.len() * size_of::<AtomicU64>()
     }
 }
 
-#[inline]
-fn fast_range32(hash: u32, n: u32) -> u32 {
-    let product = (hash as u64).wrapping_mul(n as u64);
-    (product >> 32) as u32
-}
-
+/// Rounds up to the next power of 2.
+///
+/// Used to ensure the total size is a power of 2 for efficient indexing.
 #[inline]
 fn round_up_pow2(mut x: u32) -> u32 {
     x -= 1;
@@ -158,24 +256,11 @@ mod tests {
     use std::time::Instant;
     use xxhash_rust::xxh3::xxh3_128;
 
-    // #[inline]
-    // fn fast_range32(hash: u32, n: u32) -> u32 {
-    //     (((hash as u64).wrapping_mul(n as u64)) >> 32) as u32
-    // }
-    //
-    // #[inline]
-    // fn round_up_pow2(mut x: u32) -> u32 {
-    //     if x == 0 {
-    //         return 1;
-    //     }
-    //     x -= 1;
-    //     x |= x >> 1;
-    //     x |= x >> 2;
-    //     x |= x >> 4;
-    //     x |= x >> 8;
-    //     x |= x >> 16;
-    //     x + 1
-    // }
+    #[inline]
+    fn fast_range32(hash: u32, n: u32) -> u32 {
+        let product = (hash as u64).wrapping_mul(n as u64);
+        (product >> 32) as u32
+    }
 
     #[test]
     fn test_empty_filter() {
