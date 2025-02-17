@@ -11,61 +11,77 @@ pub struct Bloom {
 
 impl Bloom {
     pub fn new(total_bits: u32, num_probes: u32) -> Self {
-        // Same as before - this part looks correct
         assert!(num_probes <= 10);
-        let num_double_probes = (num_probes + u32::from(num_probes == 1)) / 2;
-        let block_bytes = 8 * std::cmp::max(1, round_up_pow2(num_double_probes));
-        let block_bits = block_bytes * 8;
-        let blocks = (total_bits + block_bits - 1) / block_bits;
-        let sz = blocks * block_bytes;
-        let len = sz / 8;
 
+        // Round up to power of 2 blocks
+        let block_bits = 512;
+        let min_blocks = std::cmp::max(1, (total_bits + block_bits - 1) / block_bits);
+        let blocks = round_up_pow2(min_blocks + (min_blocks >> 4));
+        let len = blocks * (block_bits / 64);
+
+        let num_double_probes = (num_probes + 1) / 2;
         let mut data = Vec::with_capacity(len as usize);
         data.extend((0..len).map(|_| AtomicU64::new(0)));
 
         Self {
-            len,
+            len: len as u32,
             num_double_probes,
             data: data.into_boxed_slice(),
         }
     }
 
-    #[inline]
-    fn double_probe(&self, h32: u32, byte_offset: usize) -> bool {
-        // Expand/remix with 64-bit golden ratio
-        let mut h = 0x9e3779b97f4a7c13u64.wrapping_mul(h32 as u64);
-
-        for i in 0.. {
-            // Two bit probes per uint64_t probe
-            let mask = (1u64 << (h & 63)) | (1u64 << ((h >> 6) & 63));
-            let val = self.data[byte_offset ^ i].load(Ordering::Relaxed);
-
-            if i + 1 >= self.num_double_probes as usize {
-                return (val & mask) == mask;
-            } else if (val & mask) != mask {
-                return false;
-            }
-            h = (h >> 12) | (h << 52);
-        }
-        unreachable!()
+    #[inline(always)]
+    fn prepare_hash(&self, h32: u32) -> u32 {
+        let a = h32.wrapping_mul(0x517cc1b7);
+        (a as u64 * self.len as u64 >> 32) as u32
     }
 
-    #[inline]
-    fn add_hash_inner<F>(&self, h32: u32, byte_offset: usize, or_func: F)
+    #[inline(always)]
+    fn double_probe(&self, h32: u32, mut base_offset: usize) -> bool {
+        let mut h1 = h32;
+        let mut h2 = h32.wrapping_mul(0x9e3779b9);
+        let len_mask = (self.len - 1) as usize;
+
+        for _ in 0..self.num_double_probes {
+            let bit1 = h1 & 63;
+            let bit2 = h2 & 63;
+            let mask = (1u64 << bit1) | (1u64 << bit2);
+
+            // Simple linear probing with power-of-2 wraparound
+            let offset = base_offset & len_mask;
+
+            if (self.data[offset].load(Ordering::Relaxed) & mask) != mask {
+                return false;
+            }
+
+            // Advance probes using cheaper operations
+            h1 = h1.rotate_right(21);
+            h2 = h2.rotate_right(11);
+            base_offset = base_offset.wrapping_add(7);
+        }
+        true
+    }
+
+    #[inline(always)]
+    fn add_hash_inner<F>(&self, h32: u32, base_offset: usize, or_func: F)
     where
         F: Fn(&AtomicU64, u64),
     {
-        let mut h = 0x9e3779b97f4a7c13u64.wrapping_mul(h32 as u64);
+        let mut h1 = h32;
+        let mut h2 = h32.wrapping_mul(0x9e3779b9);
+        let len_mask = (self.len - 1) as usize;
+        let mut offset = base_offset;
 
-        for i in 0.. {
-            // Two bit probes per uint64_t probe
-            let mask = (1u64 << (h & 63)) | (1u64 << ((h >> 6) & 63));
-            or_func(&self.data[byte_offset ^ i], mask);
+        for _ in 0..self.num_double_probes {
+            let bit1 = h1 & 63;
+            let bit2 = h2 & 63;
+            let mask = (1u64 << bit1) | (1u64 << bit2);
 
-            if i + 1 >= self.num_double_probes as usize {
-                return;
-            }
-            h = (h >> 12) | (h << 52);
+            or_func(&self.data[offset & len_mask], mask);
+
+            h1 = h1.rotate_right(21);
+            h2 = h2.rotate_right(11);
+            offset = offset.wrapping_add(7);
         }
     }
 
@@ -91,11 +107,6 @@ impl Bloom {
     pub fn may_contain(&self, h32: u32) -> bool {
         let a = self.prepare_hash(h32);
         self.double_probe(h32, a as usize)
-    }
-
-    #[inline]
-    fn prepare_hash(&self, h32: u32) -> u32 {
-        fast_range32(h32, self.len)
     }
 
     #[cfg(target_arch = "x86_64")]
@@ -124,10 +135,13 @@ impl Bloom {
 }
 
 #[inline]
+fn fast_range32(hash: u32, n: u32) -> u32 {
+    let product = (hash as u64).wrapping_mul(n as u64);
+    (product >> 32) as u32
+}
+
+#[inline]
 fn round_up_pow2(mut x: u32) -> u32 {
-    if x == 0 {
-        return 1;
-    }
     x -= 1;
     x |= x >> 1;
     x |= x >> 2;
@@ -137,16 +151,31 @@ fn round_up_pow2(mut x: u32) -> u32 {
     x + 1
 }
 
-#[inline]
-fn fast_range32(hash: u32, n: u32) -> u32 {
-    (((hash as u64).wrapping_mul(n as u64)) >> 32) as u32
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::hash::{DefaultHasher, Hash, Hasher};
+    use std::time::Instant;
     use xxhash_rust::xxh3::xxh3_128;
+
+    // #[inline]
+    // fn fast_range32(hash: u32, n: u32) -> u32 {
+    //     (((hash as u64).wrapping_mul(n as u64)) >> 32) as u32
+    // }
+    //
+    // #[inline]
+    // fn round_up_pow2(mut x: u32) -> u32 {
+    //     if x == 0 {
+    //         return 1;
+    //     }
+    //     x -= 1;
+    //     x |= x >> 1;
+    //     x |= x >> 2;
+    //     x |= x >> 4;
+    //     x |= x >> 8;
+    //     x |= x >> 16;
+    //     x + 1
+    // }
 
     #[test]
     fn test_empty_filter() {
@@ -499,6 +528,87 @@ mod tests {
 
             // SpeedDB's exact assertion
             assert!(fp_rate <= 0.02, "FP rate too high: {}", fp_rate); // Must not be over 2%
+        }
+    }
+
+    #[test]
+    fn test_adaptive_probe_scaling() {
+        let sizes = [1024, 2048, 4096, 8192, 16384];
+        for size in sizes {
+            let bloom = Bloom::new(size, 8);
+            println!("Size: {}, Probes: {}", size, bloom.num_double_probes);
+
+            // Add test items
+            for i in 0..size / 10 {
+                bloom.add_hash(i as u32);
+            }
+
+            // Measure FP rate
+            let mut fps = 0;
+            let trials = 10000;
+            for i in size..size + trials {
+                if bloom.may_contain(i as u32) {
+                    fps += 1;
+                }
+            }
+            println!(
+                "Size: {}, FP rate: {:.4}%",
+                size,
+                (fps as f64 * 100.0) / trials as f64
+            );
+        }
+    }
+
+    #[test]
+    fn test_small_set_performance() {
+        for size in [512, 1024, 2048, 4096] {
+            let bloom = Bloom::new(size, 8);
+
+            // Measure insert time
+            let start = Instant::now();
+            for i in 0..size / 10 {
+                bloom.add_hash(i as u32);
+            }
+            let insert_time = start.elapsed();
+
+            // Measure lookup time
+            let start = Instant::now();
+            for i in 0..size / 10 {
+                bloom.may_contain(i as u32);
+            }
+            let lookup_time = start.elapsed();
+
+            println!(
+                "Size: {}, Insert time: {:?}, Lookup time: {:?}",
+                size, insert_time, lookup_time
+            );
+        }
+    }
+
+    #[test]
+    fn test_probe_behavior() {
+        for bits in [1024, 2048, 4096, 8192] {
+            for probes in [2, 4, 6, 8] {
+                let bloom = Bloom::new(bits, probes);
+                println!(
+                    "bits: {}, probes: {}, double_probes: {}, len: {}",
+                    bits, probes, bloom.num_double_probes, bloom.len
+                );
+
+                // Test basic set of insertions
+                for i in 0..10 {
+                    bloom.add_hash(i);
+                }
+
+                // Check FP rate
+                let mut fps = 0;
+                for i in 1000..2000 {
+                    if bloom.may_contain(i) {
+                        fps += 1;
+                    }
+                }
+                println!("  FP rate: {:.2}%", (fps as f64 / 1000.0) * 100.0);
+            }
         }
     }
 }

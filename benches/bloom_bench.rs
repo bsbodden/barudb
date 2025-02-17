@@ -1,4 +1,4 @@
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, SamplingMode};
 use lsm_tree::bloom::{Bloom, SpeedDbDynamicBloom};
 use fastbloom::BloomFilter;
 use rand::{rngs::StdRng, Rng, SeedableRng};
@@ -9,8 +9,17 @@ fn random_numbers(num: usize, seed: u64) -> Vec<u32> {
 }
 
 fn bench_bloom_filters(c: &mut Criterion) {
-    let sizes = [1000, 10_000, 100_000];
+    let sizes = [
+        1_000, 2_000, 4_000, 8_000, // Fine-grained small set sizes
+        10_000,
+        25_000, 50_000, // Medium set sizes
+        100_000
+    ];
     let mut group = c.benchmark_group("bloom_filters");
+
+    // Add configuration for better small-set resolution
+    group.sampling_mode(SamplingMode::Flat);
+    group.sample_size(200); // Increased samples for better statistical significance
 
     for size in sizes {
         let bits_per_key = 10;
