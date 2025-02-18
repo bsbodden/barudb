@@ -1,5 +1,8 @@
 mod speed_db;
+mod rocks_db;
+
 pub use self::speed_db::SpeedDbDynamicBloom;
+pub use self::rocks_db::RocksDBLocalBloom;
 
 use std::sync::atomic::{AtomicU64, Ordering};
 

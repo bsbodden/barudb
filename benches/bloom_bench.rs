@@ -1,7 +1,8 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, SamplingMode};
-use lsm_tree::bloom::{Bloom, SpeedDbDynamicBloom};
+use lsm_tree::bloom::{Bloom, RocksDBLocalBloom, SpeedDbDynamicBloom};
 use fastbloom::BloomFilter;
 use rand::{rngs::StdRng, Rng, SeedableRng};
+use xxhash_rust::xxh3::xxh3_128;
 
 fn random_numbers(num: usize, seed: u64) -> Vec<u32> {
     let mut rng = StdRng::seed_from_u64(seed);
@@ -38,6 +39,7 @@ fn bench_bloom_filters(c: &mut Criterion) {
         // Create filters
         let speed_db_bloom = SpeedDbDynamicBloom::new(total_bits as u32, 6);
         let bloom = Bloom::new(total_bits as u32, 6);
+        let rocks_bloom = RocksDBLocalBloom::new(total_bits as u32, 6);
         let fast_bloom = BloomFilter::with_num_bits(total_bits)
             .expected_items(size);
 
@@ -58,6 +60,15 @@ fn bench_bloom_filters(c: &mut Criterion) {
             })
         });
 
+        group.bench_function(BenchmarkId::new("rocksdb_insert", size), |b| {
+            b.iter(|| {
+                for item in &items {
+                    let hash = xxh3_128(&item.parse::<u32>().unwrap().to_le_bytes());
+                    rocks_bloom.add_hash(hash as u32, (hash >> 32) as u32);
+                }
+            })
+        });
+
         group.bench_function(BenchmarkId::new("fastbloom_insert", size), |b| {
             b.iter(|| {
                 let mut filter = fast_bloom.clone();
@@ -71,10 +82,10 @@ fn bench_bloom_filters(c: &mut Criterion) {
         let mut populated_fast_bloom = fast_bloom.clone();
         for item in &items {
             populated_fast_bloom.insert(item);
-        }
-        for item in &items {
             speed_db_bloom.add_hash(item.parse::<u32>().unwrap());
             bloom.add_hash(item.parse::<u32>().unwrap());
+            let hash = xxh3_128(&item.parse::<u32>().unwrap().to_le_bytes());
+            rocks_bloom.add_hash(hash as u32, (hash >> 32) as u32);
         }
 
         // Benchmark lookups
@@ -90,6 +101,15 @@ fn bench_bloom_filters(c: &mut Criterion) {
             b.iter(|| {
                 for item in &lookup_items {
                     let _ = bloom.may_contain(item.parse::<u32>().unwrap());
+                }
+            })
+        });
+
+        group.bench_function(BenchmarkId::new("rocksdb_lookup", size), |b| {
+            b.iter(|| {
+                for item in &lookup_items {
+                    let hash = xxh3_128(&item.parse::<u32>().unwrap().to_le_bytes());
+                    let _ = rocks_bloom.may_contain(hash as u32, (hash >> 32) as u32);
                 }
             })
         });
@@ -125,6 +145,19 @@ fn bench_bloom_filters(c: &mut Criterion) {
                 let mut fps = 0;
                 for item in &fp_items {
                     if bloom.may_contain(item.parse::<u32>().unwrap()) {
+                        fps += 1;
+                    }
+                }
+                fps
+            })
+        });
+
+        group.bench_function(BenchmarkId::new("rocksdb_fp", size), |b| {
+            b.iter(|| {
+                let mut fps = 0;
+                for item in &fp_items {
+                    let hash = xxh3_128(&item.parse::<u32>().unwrap().to_le_bytes());
+                    if rocks_bloom.may_contain(hash as u32, (hash >> 32) as u32) {
                         fps += 1;
                     }
                 }
