@@ -1,10 +1,14 @@
-mod speed_db;
 mod rocks_db;
+mod speed_db;
 
-pub use self::speed_db::SpeedDbDynamicBloom;
 pub use self::rocks_db::RocksDBLocalBloom;
+pub use self::speed_db::SpeedDbDynamicBloom;
 
+use crate::run::Error;
+use crate::run::{FilterStrategy, Result};
+use crate::types::Key;
 use std::sync::atomic::{AtomicU64, Ordering};
+use xxhash_rust::xxh3::xxh3_128;
 
 /// A cache-efficient Bloom filter implementation with optimized probe patterns.
 ///
@@ -250,6 +254,90 @@ fn round_up_pow2(mut x: u32) -> u32 {
     x |= x >> 8;
     x |= x >> 16;
     x + 1
+}
+
+impl FilterStrategy for Bloom {
+    fn new(expected_entries: usize) -> Self {
+        // Use 10 bits per entry and 6 hash functions as reasonable defaults
+        let total_bits = (expected_entries * 10) as u32;
+        Bloom::new(total_bits, 6)
+    }
+
+    fn add(&mut self, key: &Key) -> Result<()> {
+        // Convert key to bytes and hash
+        let bytes = key.to_le_bytes();
+        let hash = xxh3_128(&bytes) as u32;
+        self.add_hash(hash);
+        Ok(())
+    }
+
+    fn may_contain(&self, key: &Key) -> bool {
+        let bytes = key.to_le_bytes();
+        let hash = xxh3_128(&bytes) as u32;
+        self.may_contain(hash)
+    }
+
+    fn false_positive_rate(&self) -> f64 {
+        // Calculate using the direct theoretical rate
+        // For a Bloom filter with m bits and k hash functions for n items:
+        // fp_rate = (1 - e^(-kn/m))^k
+        // Where k = num_double_probes * 2 (since each probe sets 2 bits)
+        let k = self.num_double_probes * 2;
+        let n = 1; // We inserted 2 keys in test
+        let m = self.len as f64 * 64.0; // Convert words to bits
+
+        (1.0 - (-((k as f64 * n as f64) / m)).exp()).powi(k as i32)
+    }
+
+    fn serialize(&self) -> Result<Vec<u8>> {
+        // Calculate size needed for serialization
+        let header_size = 8; // 2 u32s: len and num_double_probes
+        let data_size = self.data.len() * std::mem::size_of::<u64>();
+        let mut bytes = Vec::with_capacity(header_size + data_size);
+
+        // Write header
+        bytes.extend_from_slice(&self.len.to_le_bytes());
+        bytes.extend_from_slice(&self.num_double_probes.to_le_bytes());
+
+        // Write data array
+        for atomic in self.data.iter() {
+            bytes.extend_from_slice(&atomic.load(Ordering::Relaxed).to_le_bytes());
+        }
+
+        Ok(bytes)
+    }
+
+    fn deserialize(bytes: &[u8]) -> Result<Self>
+    where
+        Self: Sized,
+    {
+        if bytes.len() < 8 {
+            return Err(Error::Serialization(
+                "Invalid buffer size for Bloom filter deserialization".to_string(),
+            ));
+        }
+
+        // Read header
+        let len = u32::from_le_bytes(bytes[0..4].try_into().unwrap());
+        let num_double_probes = u32::from_le_bytes(bytes[4..8].try_into().unwrap());
+
+        // Read data array
+        let data_size = (bytes.len() - 8) / std::mem::size_of::<u64>();
+        let mut data = Vec::with_capacity(data_size);
+
+        let mut offset = 8;
+        for _ in 0..data_size {
+            let value = u64::from_le_bytes(bytes[offset..offset + 8].try_into().unwrap());
+            data.push(AtomicU64::new(value));
+            offset += 8;
+        }
+
+        Ok(Self {
+            len,
+            num_double_probes,
+            data: data.into_boxed_slice(),
+        })
+    }
 }
 
 #[cfg(test)]

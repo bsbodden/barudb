@@ -2,9 +2,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Direct port of RocksDB's FastLocalBloomImpl to Rust
 pub struct RocksDBLocalBloom {
-    len: u32,                 // Length in 64-bit words
-    num_probes: u32,         // Number of probes per key
-    data: Box<[AtomicU64]>,  // The bit array backing the filter
+    len: u32,               // Length in 64-bit words
+    num_probes: u32,        // Number of probes per key
+    data: Box<[AtomicU64]>, // The bit array backing the filter
 }
 
 impl RocksDBLocalBloom {
@@ -86,7 +86,7 @@ impl RocksDBLocalBloom {
         // This matches RocksDB's FastRange32 implementation exactly
         let num_lines = self.len >> 3; // Divide by 8 words per cache line
         let line = (((h1 as u64).wrapping_mul(num_lines as u64)) >> 32) as usize;
-        line << 3  // Multiply by 8 words per cache line
+        line << 3 // Multiply by 8 words per cache line
     }
 
     #[cfg(target_arch = "x86_64")]
@@ -291,7 +291,6 @@ mod tests {
 
     #[test]
     fn test_hash_distribution() {
-        let bloom = RocksDBLocalBloom::new(1024, 6);
         let mut bit_counts = vec![0; 64]; // Track 64 bits per word
 
         // Insert test keys and count which bits get set
@@ -323,7 +322,8 @@ mod tests {
 
     #[test]
     fn test_performance() {
-        for m in 1..=2 { // Reduced iterations for faster tests
+        for m in 1..=2 {
+            // Reduced iterations for faster tests
             let num_keys = m * 8 * 1024 * 1024;
             println!("Testing {} million keys", m * 8);
 
