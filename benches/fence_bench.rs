@@ -1,5 +1,5 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use lsm_tree::run::{FencePointers, StandardFencePointers};
+use lsm_tree::run::{FencePointers, StandardFencePointers, TwoLevelFencePointers};
 use lsm_tree::types::Key;
 use rand::{rngs::StdRng, Rng, SeedableRng};
 
@@ -30,6 +30,9 @@ fn bench_fence_pointer_lookup(c: &mut Criterion) {
         let mut optimized_fence_pointers = FencePointers::new();
         // Create standard fence pointers for comparison
         let mut standard_fence_pointers = StandardFencePointers::new();
+        // Create two-level fence pointers
+        let sparse_ratio = if *size < 100 { 5 } else { 20 };
+        let mut two_level_fence_pointers = TwoLevelFencePointers::with_ratio(sparse_ratio);
         
         let keys = generate_sorted_keys(*size, 42);
         
@@ -40,6 +43,7 @@ fn bench_fence_pointer_lookup(c: &mut Criterion) {
             }
             optimized_fence_pointers.add(chunk[0], chunk[1], i);
             standard_fence_pointers.add(chunk[0], chunk[1], i);
+            two_level_fence_pointers.add(chunk[0], chunk[1], i);
         }
         
         // Generate lookup keys - mix of hits and misses
@@ -66,6 +70,15 @@ fn bench_fence_pointer_lookup(c: &mut Criterion) {
                 }
             })
         });
+        
+        // Benchmark two-level lookup performance
+        group.bench_function(BenchmarkId::new("two_level_find_block", size), |b| {
+            b.iter(|| {
+                for key in &lookup_keys {
+                    let _ = two_level_fence_pointers.find_block_for_key(*key);
+                }
+            })
+        });
     }
     
     group.finish();
@@ -82,6 +95,9 @@ fn bench_fence_pointer_range(c: &mut Criterion) {
         let mut optimized_fence_pointers = FencePointers::new();
         // Create standard fence pointers for comparison
         let mut standard_fence_pointers = StandardFencePointers::new();
+        // Create two-level fence pointers
+        let sparse_ratio = if *size < 100 { 5 } else { 20 };
+        let mut two_level_fence_pointers = TwoLevelFencePointers::with_ratio(sparse_ratio);
         
         let keys = generate_sorted_keys(*size, 42);
         
@@ -92,6 +108,7 @@ fn bench_fence_pointer_range(c: &mut Criterion) {
             }
             optimized_fence_pointers.add(chunk[0], chunk[1], i);
             standard_fence_pointers.add(chunk[0], chunk[1], i);
+            two_level_fence_pointers.add(chunk[0], chunk[1], i);
         }
         
         // Generate range queries with varying selectivity
@@ -125,6 +142,15 @@ fn bench_fence_pointer_range(c: &mut Criterion) {
                 }
             })
         });
+        
+        // Benchmark two-level range search performance
+        group.bench_function(BenchmarkId::new("two_level_find_blocks_in_range", size), |b| {
+            b.iter(|| {
+                for (start, end) in &ranges {
+                    let _ = two_level_fence_pointers.find_blocks_in_range(*start, *end);
+                }
+            })
+        });
     }
     
     group.finish();
@@ -141,6 +167,9 @@ fn bench_fence_pointer_serialization(c: &mut Criterion) {
         let mut optimized_fence_pointers = FencePointers::new();
         // Create standard fence pointers for comparison
         let mut standard_fence_pointers = StandardFencePointers::new();
+        // Create two-level fence pointers
+        let sparse_ratio = if *size < 100 { 5 } else { 20 };
+        let mut two_level_fence_pointers = TwoLevelFencePointers::with_ratio(sparse_ratio);
         
         let keys = generate_sorted_keys(*size, 42);
         
@@ -151,6 +180,7 @@ fn bench_fence_pointer_serialization(c: &mut Criterion) {
             }
             optimized_fence_pointers.add(chunk[0], chunk[1], i);
             standard_fence_pointers.add(chunk[0], chunk[1], i);
+            two_level_fence_pointers.add(chunk[0], chunk[1], i);
         }
         
         // Benchmark optimized serialization performance
@@ -167,9 +197,17 @@ fn bench_fence_pointer_serialization(c: &mut Criterion) {
             })
         });
         
+        // Benchmark two-level serialization performance
+        group.bench_function(BenchmarkId::new("two_level_serialize", size), |b| {
+            b.iter(|| {
+                let _ = two_level_fence_pointers.serialize().unwrap();
+            })
+        });
+        
         // Prepare serialized data for deserialization benchmark
         let optimized_serialized = optimized_fence_pointers.serialize().unwrap();
         let standard_serialized = standard_fence_pointers.serialize().unwrap();
+        let two_level_serialized = two_level_fence_pointers.serialize().unwrap();
         
         // Benchmark optimized deserialization performance
         group.bench_function(BenchmarkId::new(
@@ -185,6 +223,13 @@ fn bench_fence_pointer_serialization(c: &mut Criterion) {
         group.bench_function(BenchmarkId::new("standard_deserialize", size), |b| {
             b.iter(|| {
                 let _ = StandardFencePointers::deserialize(&standard_serialized).unwrap();
+            })
+        });
+        
+        // Benchmark two-level deserialization performance
+        group.bench_function(BenchmarkId::new("two_level_deserialize", size), |b| {
+            b.iter(|| {
+                let _ = TwoLevelFencePointers::deserialize(&two_level_serialized).unwrap();
             })
         });
     }

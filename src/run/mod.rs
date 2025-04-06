@@ -5,6 +5,7 @@ mod filter;
 mod lsf;
 mod standard_fence;
 mod storage;
+mod two_level_fence;
 
 use crate::types::{Key, Value};
 use std::io;
@@ -20,6 +21,7 @@ pub use storage::{
     FileStorage, RunId, RunMetadata, RunStorage, 
     StorageFactory, StorageOptions, StorageStats
 };
+pub use two_level_fence::TwoLevelFencePointers;
 
 #[derive(Debug)]
 #[allow(dead_code)]
