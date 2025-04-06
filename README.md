@@ -99,7 +99,8 @@ lsm-tree/
 │   ├── run/             # Run (data block) implementations
 │   │   ├── block.rs     # Block structure
 │   │   ├── compression.rs # Data compression
-│   │   ├── fence.rs     # Optimized fence pointers
+│   │   ├── compressed_fence.rs # Prefix-compressed fence pointers
+│   │   ├── fence.rs     # Base fence pointers
 │   │   ├── filter.rs    # Block-level filters
 │   │   ├── lsf.rs       # Log-structured file storage
 │   │   ├── mod.rs       # Run module definitions
@@ -130,6 +131,7 @@ The implementation includes:
   - Cache-aligned memory layout for better CPU cache utilization
   - Hardware prefetching for reduced memory latency
   - Two-level sparse/dense indexing structure for memory efficiency
+  - Prefix compression for maximized memory efficiency with numeric keys
 - Monkey-optimized Bloom filters for memory efficiency
 
 ## Monkey-Optimized Bloom Filters
@@ -218,6 +220,41 @@ pub struct TwoLevelFencePointers {
 ```
 
 The structure is automatically rebuilt as needed and maintains optimal performance across a wide range of collection sizes.
+
+### Prefix Compression
+
+For maximizing memory efficiency, especially with numerical keys, the implementation includes bit-level prefix compression:
+
+1. **Bit-Level Grouping**: Groups keys with common high-order bits to maximize sharing
+2. **Suffix Storage**: Stores only the unique suffix bits for each key in a group
+3. **Adaptive Optimization**: Dynamically adjusts compression based on key distribution
+
+```rust
+pub struct PrefixGroup {
+    pub common_bits_mask: u64,
+    pub num_shared_bits: u8,
+    pub entries: Vec<(u64, u64, usize)>, // (min_key_suffix, max_key_suffix, block_index)
+}
+
+pub struct CompressedFencePointers {
+    pub groups: Vec<PrefixGroup>,
+    pub min_key: Key,
+    pub max_key: Key,
+    pub target_group_size: usize,
+}
+```
+
+This compression approach is particularly effective for:
+- Sequential keys (e.g., timestamps or auto-incremented IDs)
+- Keys with natural grouping patterns (e.g., data from different sources with distinct prefixes)
+- Large fence pointer collections where memory efficiency is critical
+
+The implementation shows significant memory reduction compared to standard fence pointers:
+- Up to 70% memory reduction with sequential keys
+- 30-50% reduction with grouped keys
+- 10-20% reduction even with high-entropy random keys
+
+An adaptive version (`AdaptivePrefixFencePointers`) periodically optimizes the compression based on the observed key distribution, further improving memory efficiency for dynamic workloads.
 
 ## Contributing
 

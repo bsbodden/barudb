@@ -1,5 +1,6 @@
 mod block;
 mod compression;
+mod compressed_fence;
 mod fence;
 mod filter;
 mod lsf;
@@ -13,6 +14,9 @@ use std::io;
 use crate::bloom::{Bloom, create_bloom_for_level};
 pub use block::{Block, BlockConfig};
 pub use compression::{CompressionStrategy, NoopCompression};
+pub use compressed_fence::{
+    CompressedFencePointers, AdaptivePrefixFencePointers, PrefixGroup
+};
 pub use fence::FencePointers;
 pub use filter::{FilterStrategy, NoopFilter};
 pub use lsf::LSFStorage;
