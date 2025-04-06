@@ -3,6 +3,11 @@ use lsm_tree::run::{FencePointers, StandardFencePointers};
 use lsm_tree::types::Key;
 use rand::{rngs::StdRng, Rng, SeedableRng};
 
+#[cfg(target_arch = "x86_64")]
+const PLATFORM_NAME: &str = "x86_64_prefetch";
+#[cfg(not(target_arch = "x86_64"))]
+const PLATFORM_NAME: &str = "generic";
+
 fn generate_random_keys(count: usize, seed: u64) -> Vec<Key> {
     let mut rng = StdRng::seed_from_u64(seed);
     (0..count).map(|_| rng.gen::<Key>()).collect()
@@ -41,8 +46,11 @@ fn bench_fence_pointer_lookup(c: &mut Criterion) {
         let lookup_count = 1000;
         let lookup_keys = generate_random_keys(lookup_count, 43);
         
-        // Benchmark optimized lookup performance
-        group.bench_function(BenchmarkId::new("optimized_find_block", size), |b| {
+        // Benchmark optimized lookup performance (with platform-specific name)
+        group.bench_function(BenchmarkId::new(
+            format!("optimized_find_block_{}", PLATFORM_NAME), 
+            size
+        ), |b| {
             b.iter(|| {
                 for key in &lookup_keys {
                     let _ = optimized_fence_pointers.find_block_for_key(*key);
@@ -97,8 +105,11 @@ fn bench_fence_pointer_range(c: &mut Criterion) {
             ranges.push((keys[start_idx], keys[end_idx]));
         }
         
-        // Benchmark optimized range search performance
-        group.bench_function(BenchmarkId::new("optimized_find_blocks_in_range", size), |b| {
+        // Benchmark optimized range search performance with platform info
+        group.bench_function(BenchmarkId::new(
+            format!("optimized_find_blocks_in_range_{}", PLATFORM_NAME), 
+            size
+        ), |b| {
             b.iter(|| {
                 for (start, end) in &ranges {
                     let _ = optimized_fence_pointers.find_blocks_in_range(*start, *end);
@@ -161,7 +172,10 @@ fn bench_fence_pointer_serialization(c: &mut Criterion) {
         let standard_serialized = standard_fence_pointers.serialize().unwrap();
         
         // Benchmark optimized deserialization performance
-        group.bench_function(BenchmarkId::new("optimized_deserialize", size), |b| {
+        group.bench_function(BenchmarkId::new(
+            format!("optimized_deserialize_{}", PLATFORM_NAME), 
+            size
+        ), |b| {
             b.iter(|| {
                 let _ = FencePointers::deserialize(&optimized_serialized).unwrap();
             })
