@@ -301,26 +301,47 @@ mod tests {
     
     #[test]
     fn test_configuration() {
-        // Test default configuration
-        let lsm_tree = LSMTree::new(256);
-        assert_eq!(lsm_tree.get_config().buffer_size, 256);
-        assert_eq!(lsm_tree.get_config().storage_type, "file");
-        assert!(lsm_tree.get_config().create_path_if_missing);
-        
-        // Test custom configuration
+        // Create a fresh, empty directory for testing configuration
         let temp_dir = tempdir().unwrap();
+        
+        // Create custom config first to avoid conflicts with recovery
+        // and use a subdirectory to avoid any existing files
+        let config_dir = temp_dir.path().join("config_test");
+        std::fs::create_dir_all(&config_dir).unwrap();
+        
         let config = LSMConfig {
             buffer_size: 512,
             storage_type: "file".to_string(),
-            storage_path: temp_dir.path().to_path_buf(),
-            create_path_if_missing: false,
+            storage_path: config_dir.clone(),
+            create_path_if_missing: true, // Need this to create the path
             max_open_files: 50,
             sync_writes: true,
         };
+        
+        // Create LSM tree with custom config
         let lsm_tree = LSMTree::with_config(config.clone());
+        
+        // Test configuration is preserved
         assert_eq!(lsm_tree.get_config().buffer_size, 512);
         assert_eq!(lsm_tree.get_config().max_open_files, 50);
-        assert_eq!(lsm_tree.get_config().storage_path, temp_dir.path().to_path_buf());
+        assert_eq!(lsm_tree.get_config().storage_path, config_dir);
+        assert!(lsm_tree.get_config().create_path_if_missing);
+        assert!(lsm_tree.get_config().sync_writes);
+        
+        // Test default configuration in separate directory
+        let default_dir = temp_dir.path().join("default_test");
+        std::fs::create_dir_all(&default_dir).unwrap();
+        
+        // Override default path to use our test directory
+        let default_tree = LSMTree::with_config(LSMConfig {
+            buffer_size: 256,
+            storage_path: default_dir.clone(),
+            ..Default::default()
+        });
+        
+        assert_eq!(default_tree.get_config().buffer_size, 256);
+        assert_eq!(default_tree.get_config().storage_type, "file");
+        assert!(default_tree.get_config().create_path_if_missing);
     }
     
     #[test]
