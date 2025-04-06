@@ -14,6 +14,9 @@ pub trait FilterStrategy: Send + Sync {
     fn deserialize(bytes: &[u8]) -> Result<Self>
     where
         Self: Sized;
+    
+    /// Clone this filter as a boxed trait object
+    fn clone_box(&self) -> Box<dyn FilterStrategy>;
 }
 
 #[derive(Debug, Default)]
@@ -60,6 +63,12 @@ impl FilterStrategy for NoopFilter {
 
         Ok(Self {
             entry_count: AtomicUsize::new(entry_count)
+        })
+    }
+    
+    fn clone_box(&self) -> Box<dyn FilterStrategy> {
+        Box::new(Self {
+            entry_count: AtomicUsize::new(self.entry_count.load(Ordering::Relaxed))
         })
     }
 }

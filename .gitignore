@@ -5,3 +5,5 @@ generator/generator
 generator/workload.txt
 .idea/cs265-lsm-tree.iml
 .DS_Store
+data/**/*.bin
+data/**/*.meta

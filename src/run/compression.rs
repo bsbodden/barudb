@@ -5,6 +5,9 @@ pub trait CompressionStrategy: Send + Sync {
     fn compress(&self, data: &[u8]) -> Result<Vec<u8>>;
     fn decompress(&self, data: &[u8]) -> Result<Vec<u8>>;
     fn estimate_compressed_size(&self, data: &[u8]) -> usize;
+    
+    /// Clone this compression strategy as a boxed trait object
+    fn clone_box(&self) -> Box<dyn CompressionStrategy>;
 }
 
 #[derive(Debug, Default)]
@@ -21,6 +24,10 @@ impl CompressionStrategy for NoopCompression {
 
     fn estimate_compressed_size(&self, data: &[u8]) -> usize {
         data.len()
+    }
+    
+    fn clone_box(&self) -> Box<dyn CompressionStrategy> {
+        Box::new(Self)
     }
 }
 

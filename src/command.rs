@@ -9,6 +9,7 @@ pub enum Command {
     Load(String),
     PrintStats,
     Quit,
+    FlushMemtable, // Added for testing recovery
 }
 
 impl Command {
@@ -72,6 +73,13 @@ impl Command {
                     return None;
                 }
                 Some(Command::Quit)
+            }
+            "f" => {
+                if parts.next().is_some() {
+                    eprintln!("Extra parts in Flush command: {}", input);
+                    return None;
+                }
+                Some(Command::FlushMemtable)
             }
             _ => {
                 eprintln!("Unknown command: {}", cmd);
@@ -151,5 +159,11 @@ mod tests {
     fn test_quit_command() {
         assert!(matches!(Command::parse("q"), Some(Command::Quit)));
         assert_eq!(Command::parse("q extra"), None);
+    }
+    
+    #[test]
+    fn test_flush_command() {
+        assert!(matches!(Command::parse("f"), Some(Command::FlushMemtable)));
+        assert_eq!(Command::parse("f extra"), None);
     }
 }

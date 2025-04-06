@@ -44,6 +44,18 @@ impl From<std::io::Error> for Error {
     }
 }
 
+impl From<crate::run::Error> for Error {
+    fn from(err: crate::run::Error) -> Self {
+        match err {
+            crate::run::Error::Io(e) => Error::Io(e),
+            _ => Error::Io(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Run error: {:?}", err)
+            )),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

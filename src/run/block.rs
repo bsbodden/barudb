@@ -3,7 +3,7 @@ use crate::types::{Key, Value};
 use std::cmp::{max, min};
 use std::mem;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub struct BlockConfig {
     pub target_size: usize,
@@ -21,7 +21,7 @@ impl Default for BlockConfig {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub struct BlockHeader {
     pub entry_count: u32,
@@ -46,7 +46,7 @@ impl BlockHeader {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Block {
     pub header: BlockHeader,
     pub entries: Vec<(Key, Value)>,
@@ -94,10 +94,31 @@ impl Block {
             return None;
         }
 
-        self.entries
+        // Debug output for key lookup
+        println!("Block get - key: {}, entries: {}, min_key: {}, max_key: {}", 
+                key, self.entries.len(), self.header.min_key, self.header.max_key);
+        
+        // Linear search for debugging
+        for (k, v) in &self.entries {
+            if k == key {
+                println!("Found key {} with value {} (linear search)", key, v);
+                return Some(*v);
+            }
+        }
+        
+        // Try binary search
+        let result = self.entries
             .binary_search_by_key(key, |(k, _)| *k)
             .ok()
-            .map(|idx| self.entries[idx].1)
+            .map(|idx| self.entries[idx].1);
+            
+        if result.is_some() {
+            println!("Found key {} with value {} (binary search)", key, result.unwrap());
+        } else {
+            println!("Key {} not found in block", key);
+        }
+        
+        result
     }
 
     pub fn range(&self, start: Key, end: Key) -> Vec<(Key, Value)> {
@@ -114,26 +135,123 @@ impl Block {
 
     #[allow(dead_code)]
     pub fn serialize(&mut self, compression: &dyn CompressionStrategy) -> Result<Vec<u8>> {
-        // First serialize entries to bytes
+        if !self.is_sealed {
+            self.seal()?;
+        }
+
+        // Create a buffer for the full serialized data
         let mut data = Vec::new();
+        
+        // Write header fields - in exact same order as they'll be read in deserialize
+        data.extend_from_slice(&self.header.entry_count.to_le_bytes());
+        data.extend_from_slice(&self.header.min_key.to_le_bytes());
+        data.extend_from_slice(&self.header.max_key.to_le_bytes());
+        data.extend_from_slice(&self.header.compressed_size.to_le_bytes());
+        data.extend_from_slice(&self.header.uncompressed_size.to_le_bytes());
+        
+        // Write entries
         for (key, value) in &self.entries {
             data.extend_from_slice(&key.to_le_bytes());
             data.extend_from_slice(&value.to_le_bytes());
         }
-
-        // Compress the data
+        
+        // Calculate checksum (excluding the checksum field itself)
+        let checksum = xxhash_rust::xxh3::xxh3_64(&data);
+        self.header.checksum = checksum;
+        
+        // Add checksum to data
+        data.extend_from_slice(&checksum.to_le_bytes());
+        
+        // Update header sizes - important for accurate serialization/deserialization
+        self.header.uncompressed_size = data.len() as u32;
+        
+        // Compress the entire block
         let compressed = compression.compress(&data)?;
         self.header.compressed_size = compressed.len() as u32;
-        self.header.uncompressed_size = data.len() as u32;
-
+        
         Ok(compressed)
     }
 
     #[allow(dead_code)]
     pub fn deserialize(bytes: &[u8], compression: &dyn CompressionStrategy) -> Result<Self> {
-        let _decompressed = compression.decompress(bytes)?;
-        // TODO: Implement deserialization
-        todo!()
+        // Decompress the data
+        let decompressed = compression.decompress(bytes)?;
+        
+        if decompressed.len() < std::mem::size_of::<BlockHeader>() {
+            return Err(super::Error::Serialization("Block data too small".into()));
+        }
+        
+        // Calculate checksum of the decompressed data (excluding the checksum field)
+        let checksum_offset = decompressed.len() - std::mem::size_of::<u64>();
+        let data_for_checksum = &decompressed[..checksum_offset];
+        let computed_checksum = xxhash_rust::xxh3::xxh3_64(data_for_checksum);
+        
+        // Extract stored checksum
+        let stored_checksum_bytes = &decompressed[checksum_offset..];
+        let stored_checksum = u64::from_le_bytes(stored_checksum_bytes.try_into().unwrap());
+        
+        // Verify checksum
+        if computed_checksum != stored_checksum {
+            return Err(super::Error::Serialization(format!(
+                "Block checksum mismatch: computed={}, stored={}",
+                computed_checksum, stored_checksum
+            )));
+        }
+        
+        // Parse header (first several bytes)
+        let mut offset = 0;
+        
+        // Read entry count
+        let entry_count = u32::from_le_bytes(decompressed[offset..offset+4].try_into().unwrap());
+        offset += 4;
+        
+        // Read min key
+        let min_key = i64::from_le_bytes(decompressed[offset..offset+8].try_into().unwrap());
+        offset += 8;
+        
+        // Read max key
+        let max_key = i64::from_le_bytes(decompressed[offset..offset+8].try_into().unwrap());
+        offset += 8;
+        
+        // Read compressed size
+        let compressed_size = u32::from_le_bytes(decompressed[offset..offset+4].try_into().unwrap());
+        offset += 4;
+        
+        // Read uncompressed size
+        let uncompressed_size = u32::from_le_bytes(decompressed[offset..offset+4].try_into().unwrap());
+        offset += 4;
+        
+        // Reconstruct header
+        let header = BlockHeader {
+            entry_count,
+            min_key,
+            max_key,
+            compressed_size,
+            uncompressed_size,
+            checksum: stored_checksum,
+        };
+        
+        // Parse entries
+        let mut entries = Vec::with_capacity(entry_count as usize);
+        
+        for _ in 0..entry_count {
+            // Key
+            let key = i64::from_le_bytes(decompressed[offset..offset+8].try_into().unwrap());
+            offset += 8;
+            
+            // Value
+            let value = i64::from_le_bytes(decompressed[offset..offset+8].try_into().unwrap());
+            offset += 8;
+            
+            entries.push((key, value));
+        }
+        
+        // Create and return the block
+        Ok(Block {
+            header,
+            entries,
+            is_sealed: true,
+        })
     }
 }
 

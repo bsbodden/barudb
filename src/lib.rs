@@ -2,7 +2,7 @@ pub mod command;
 mod level;
 pub mod lsm_tree;
 pub mod memtable;
-mod run;
+pub mod run;
 pub mod test_helpers;
 pub mod types;
 pub mod bloom;

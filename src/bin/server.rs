@@ -81,6 +81,14 @@ fn handle_client(
                         eprintln!("PrintStats command is not implemented");
                         "Error: PrintStats command not implemented".to_string()
                     }
+                    Some(Command::FlushMemtable) => {
+                        println!("Processing FlushMemtable command");
+                        let mut tree = lsm_tree.write().unwrap();
+                        match tree.flush_buffer_to_level0() {
+                            Ok(_) => "OK - Memtable flushed to disk".to_string(),
+                            Err(e) => format!("Error flushing memtable: {:?}", e),
+                        }
+                    }
                     None => {
                         eprintln!("Invalid command received");
                         "Invalid command".to_string()
