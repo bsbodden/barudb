@@ -1,5 +1,5 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, SamplingMode};
-use lsm_tree::bloom::{Bloom, RocksDBLocalBloom, SpeedDbDynamicBloom};
+use lsm_tree::bloom::{Bloom, RocksDBLocalBloom, SpeedDbDynamicBloom, create_bloom_for_level};
 use fastbloom::BloomFilter;
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use xxhash_rust::xxh3::xxh3_128;
@@ -180,5 +180,73 @@ fn bench_bloom_filters(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_bloom_filters);
+fn bench_monkey_optimization(c: &mut Criterion) {
+    let mut group = c.benchmark_group("monkey_optimization");
+    
+    // Configuration
+    let size = 10000; // Fixed size for all tests
+    let fanout = 4.0; // Common fanout ratio
+    let levels = 5; // Number of levels to test
+    
+    // Sample data
+    let items: Vec<u32> = random_numbers(size, 42);
+    let lookup_items: Vec<u32> = random_numbers(size, 43);
+    let fp_items: Vec<u32> = random_numbers(10_000, 44);
+    
+    // Create Bloom filters for different levels
+    let mut level_filters = Vec::with_capacity(levels);
+    
+    for level in 0..levels {
+        let filter = create_bloom_for_level(size, level, fanout);
+        level_filters.push(filter);
+    }
+    
+    // Populate all filters with the same data
+    for level in 0..levels {
+        for &item in &items {
+            level_filters[level].add_hash(item);
+        }
+    }
+    
+    // Benchmark lookup performance
+    for level in 0..levels {
+        group.bench_function(BenchmarkId::new("monkey_lookup", level), |b| {
+            b.iter(|| {
+                for &item in &lookup_items {
+                    let _ = level_filters[level].may_contain(item);
+                }
+            })
+        });
+    }
+    
+    // Benchmark false positive rates
+    for level in 0..levels {
+        group.bench_function(BenchmarkId::new("monkey_fp", level), |b| {
+            b.iter(|| {
+                let mut fps = 0;
+                for &item in &fp_items {
+                    if level_filters[level].may_contain(item) {
+                        fps += 1;
+                    }
+                }
+                fps
+            })
+        });
+    }
+    
+    // Compare memory usage (not really a benchmark, but outputs useful metrics)
+    for level in 0..levels {
+        let bits_per_entry = (level_filters[level].memory_usage() * 8) as f64 / size as f64;
+        group.bench_function(BenchmarkId::new("monkey_memory", level), |b| {
+            b.iter(|| {
+                level_filters[level].memory_usage()
+            })
+        });
+        println!("Level {}: {:.2} bits per entry", level, bits_per_entry);
+    }
+    
+    group.finish();
+}
+
+criterion_group!(benches, bench_bloom_filters, bench_monkey_optimization);
 criterion_main!(benches);

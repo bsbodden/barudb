@@ -229,6 +229,7 @@ impl RunStorage for FileStorage {
             compression: run.compression.clone_box(),
             fence_pointers: FencePointers::new(), // Will be rebuilt during serialization
             id: Some(run_id),
+            level: run.level, // Preserve level information
         };
         
         // Ensure deterministic serialization by resealing blocks
@@ -309,8 +310,9 @@ impl RunStorage for FileStorage {
             }
         }
 
-        // Set the run ID
+        // Set the run ID and level
         run.id = Some(run_id);
+        run.level = Some(run_id.level);
 
         Ok(run)
     }

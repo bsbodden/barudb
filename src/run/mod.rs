@@ -8,7 +8,7 @@ mod storage;
 use crate::types::{Key, Value};
 use std::io;
 
-use crate::bloom::Bloom;
+use crate::bloom::{Bloom, create_bloom_for_level};
 pub use block::{Block, BlockConfig};
 pub use compression::{CompressionStrategy, NoopCompression};
 pub use fence::FencePointers;
@@ -54,6 +54,8 @@ pub struct Run {
     pub fence_pointers: FencePointers,
     // Optional run ID when it comes from storage
     pub id: Option<RunId>,
+    // Level information for debugging and optimization
+    pub level: Option<usize>,
 }
 
 // Implement Clone manually since we have Boxed trait objects
@@ -67,6 +69,7 @@ impl Clone for Run {
             compression: Box::new(NoopCompression),
             fence_pointers: self.fence_pointers.clone(),
             id: self.id.clone(),
+            level: self.level,
         }
     }
 }
@@ -77,11 +80,11 @@ impl Run {
         let mut blocks = Vec::new();
         let mut fence_pointers = FencePointers::new();
 
-        // Initialize filter with data size
-        // Using 10 bits per entry and 6 probes as shown in the test cases
-        let total_bits = (data.len() * 10) as u32;
-        let num_probes = 6;
-        let mut filter: Box<dyn FilterStrategy> = Box::new(Bloom::new(total_bits, num_probes));
+        // Create a basic filter with default values
+        let mut filter: Box<dyn FilterStrategy> = Box::new(Bloom::new((data.len() * 10) as u32, 6));
+        
+        // No level info by default
+        let level = None;
 
         // Create initial block and populate filter
         if !data.is_empty() {
@@ -106,6 +109,52 @@ impl Run {
             compression: Box::new(NoopCompression),
             fence_pointers,
             id: None,
+            level,
+        }
+    }
+    
+    /// Create a new run with a level-optimized Bloom filter
+    /// 
+    /// This creates a run with a Bloom filter that is optimized based on the level
+    /// in the LSM tree, following the Monkey paper's optimization strategy.
+    /// 
+    /// # Arguments
+    /// * `data` - Key-value pairs to store in the run
+    /// * `level` - Level in the LSM tree (0-based, with 0 being the first level after memtable)
+    /// * `fanout` - Fanout/size ratio of the LSM tree
+    pub fn new_for_level(data: Vec<(Key, Value)>, level: usize, fanout: f64) -> Self {
+        let block_config = BlockConfig::default();
+        let mut blocks = Vec::new();
+        let mut fence_pointers = FencePointers::new();
+
+        // Create a Bloom filter with Monkey optimization for this level
+        let bloom = create_bloom_for_level(data.len(), level, fanout);
+        let mut filter: Box<dyn FilterStrategy> = Box::new(bloom);
+        
+        // Create initial block and populate filter
+        if !data.is_empty() {
+            let mut block = Block::new();
+            for (k, v) in data.iter() {
+                block.add_entry(*k, *v).unwrap();
+                filter.add(k).unwrap();
+            }
+            block.seal().unwrap();
+            
+            // Add fence pointer for this block
+            fence_pointers.add(block.header.min_key, block.header.max_key, 0);
+            
+            blocks.push(block);
+        }
+        
+        Run {
+            data,
+            block_config,
+            blocks,
+            filter,
+            compression: Box::new(NoopCompression),
+            fence_pointers,
+            id: None,
+            level: Some(level),
         }
     }
 
@@ -494,11 +543,14 @@ impl Run {
             compression,
             fence_pointers,
             id: None,
+            level: None, // Level info is not serialized currently
         })
     }
 
     /// Store this run using the provided storage implementation
     pub fn store(&mut self, storage: &dyn RunStorage, level: usize) -> Result<RunId> {
+        // Update the level information
+        self.level = Some(level);
         storage.store_run(level, self)
     }
 

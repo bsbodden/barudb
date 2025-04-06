@@ -255,6 +255,46 @@ fn round_up_pow2(mut x: u32) -> u32 {
     x + 1
 }
 
+/// Helper function to calculate optimal bits per entry
+/// for a given level of the LSM tree according to the Monkey paper
+fn calculate_monkey_bits_per_entry(level: usize, fanout: f64) -> f64 {
+    // The bit allocation works as follows:
+    // - Lower levels (which are less frequently accessed) get fewer bits per entry
+    // - The reduction follows an exponential pattern based on the fanout and level depth
+    
+    if level == 0 {
+        // Level 0 gets maximum bits (32 is high enough to reflect in memory allocation)
+        32.0
+    } else {
+        // Use a power function to decrease bits exponentially with level depth
+        // This gives a smooth reduction based on both level and fanout:
+        // For fanout=4, level=1: 32/(4^(1/2)) = 16
+        // For fanout=4, level=2: 32/(4^(2/2)) = 8
+        // For fanout=4, level=3: 32/(4^(3/2)) = 4
+        let bits = 32.0 / fanout.powf(level as f64 / 2.0);
+        
+        // Ensure we don't go below minimum
+        bits.max(2.0)
+    }
+}
+
+/// Function to create a level-appropriate Bloom filter
+/// This is a free function (not part of FilterStrategy trait)
+pub fn create_bloom_for_level(expected_entries: usize, level: usize, fanout: f64) -> Bloom {
+    // Calculate bits per entry using Monkey optimization
+    let bits_per_entry = calculate_monkey_bits_per_entry(level, fanout);
+    
+    // Calculate total bits
+    let total_bits = (expected_entries as f64 * bits_per_entry).ceil() as u32;
+    
+    // Calculate optimal hash functions: ln(2) * bits_per_entry
+    let ln2 = std::f64::consts::LN_2;
+    let optimal_hashes = (ln2 * bits_per_entry).round() as u32;
+    let optimal_hashes = optimal_hashes.clamp(1, 10); // Keep in reasonable range
+    
+    Bloom::new(total_bits, optimal_hashes)
+}
+
 impl FilterStrategy for Bloom {
     fn new(expected_entries: usize) -> Self {
         // Use 10 bits per entry and 6 hash functions as reasonable defaults
@@ -838,5 +878,111 @@ mod tests {
                 println!("  FP rate: {:.2}%", (fps as f64 / 1000.0) * 100.0);
             }
         }
+    }
+    
+    #[test]
+    fn test_monkey_optimization() {
+        // Create Bloom filters for different levels with the same number of entries
+        let entries = 10000;
+        let fanout = 4.0;
+        
+        // Print the exact bits per entry calculated by the function
+        println!("Raw bits per entry from calculation (with fanout={}):", fanout);
+        for level in 0..5 {
+            let bits = calculate_monkey_bits_per_entry(level, fanout);
+            println!("Level {}: {:.2} bits/entry", level, bits);
+        }
+        
+        // Create filters for levels 0 through 4
+        let level0_filter = create_bloom_for_level(entries, 0, fanout);
+        let level1_filter = create_bloom_for_level(entries, 1, fanout);
+        let level2_filter = create_bloom_for_level(entries, 2, fanout);
+        let level3_filter = create_bloom_for_level(entries, 3, fanout);
+        let level4_filter = create_bloom_for_level(entries, 4, fanout);
+        
+        // Get bits per entry for each filter - this is what we want to verify
+        // is decreasing according to the Monkey formula
+        let bits_per_entry0 = (level0_filter.len as f64 * 64.0) / entries as f64;
+        let bits_per_entry1 = (level1_filter.len as f64 * 64.0) / entries as f64;
+        let bits_per_entry2 = (level2_filter.len as f64 * 64.0) / entries as f64;
+        let bits_per_entry3 = (level3_filter.len as f64 * 64.0) / entries as f64;
+        let bits_per_entry4 = (level4_filter.len as f64 * 64.0) / entries as f64;
+        
+        println!("Monkey optimization bits per entry:");
+        println!("Level 0: {:.2} bits/entry", bits_per_entry0);
+        println!("Level 1: {:.2} bits/entry", bits_per_entry1);
+        println!("Level 2: {:.2} bits/entry", bits_per_entry2);
+        println!("Level 3: {:.2} bits/entry", bits_per_entry3);
+        println!("Level 4: {:.2} bits/entry", bits_per_entry4);
+        
+        // Check actual memory usage by each filter
+        let mem0 = level0_filter.memory_usage();
+        let mem1 = level1_filter.memory_usage();
+        let mem2 = level2_filter.memory_usage();
+        let mem3 = level3_filter.memory_usage();
+        let mem4 = level4_filter.memory_usage();
+        
+        println!("Memory usage per level:");
+        println!("Level 0: {} bytes, {:.2} bits/entry", mem0, (mem0 * 8) as f64 / entries as f64);
+        println!("Level 1: {} bytes, {:.2} bits/entry", mem1, (mem1 * 8) as f64 / entries as f64);
+        println!("Level 2: {} bytes, {:.2} bits/entry", mem2, (mem2 * 8) as f64 / entries as f64);
+        println!("Level 3: {} bytes, {:.2} bits/entry", mem3, (mem3 * 8) as f64 / entries as f64);
+        println!("Level 4: {} bytes, {:.2} bits/entry", mem4, (mem4 * 8) as f64 / entries as f64);
+        
+        // Verify that bits per entry decreases with level
+        assert!(bits_per_entry0 >= bits_per_entry1, "Level 0 ({:.2}) should have >= bits than level 1 ({:.2})", bits_per_entry0, bits_per_entry1);
+        assert!(bits_per_entry1 >= bits_per_entry2, "Level 1 ({:.2}) should have >= bits than level 2 ({:.2})", bits_per_entry1, bits_per_entry2);
+        assert!(bits_per_entry2 >= bits_per_entry3, "Level 2 ({:.2}) should have >= bits than level 3 ({:.2})", bits_per_entry2, bits_per_entry3);
+        assert!(bits_per_entry3 >= bits_per_entry4, "Level 3 ({:.2}) should have >= bits than level 4 ({:.2})", bits_per_entry3, bits_per_entry4);
+        
+        // Ensure that all filters still work correctly
+        // Add same keys to all filters
+        for i in 0..100 {
+            level0_filter.add_hash(i);
+            level1_filter.add_hash(i);
+            level2_filter.add_hash(i);
+            level3_filter.add_hash(i);
+            level4_filter.add_hash(i);
+        }
+        
+        // Verify all keys can be found
+        for i in 0..100 {
+            assert!(level0_filter.may_contain(i));
+            assert!(level1_filter.may_contain(i));
+            assert!(level2_filter.may_contain(i));
+            assert!(level3_filter.may_contain(i));
+            assert!(level4_filter.may_contain(i));
+        }
+        
+        // Measure false positive rates
+        let mut fp_rates = vec![0.0, 0.0, 0.0, 0.0, 0.0];
+        let test_keys = 10000;
+        
+        for i in 1000000..1000000 + test_keys {
+            if level0_filter.may_contain(i) { fp_rates[0] += 1.0; }
+            if level1_filter.may_contain(i) { fp_rates[1] += 1.0; }
+            if level2_filter.may_contain(i) { fp_rates[2] += 1.0; }
+            if level3_filter.may_contain(i) { fp_rates[3] += 1.0; }
+            if level4_filter.may_contain(i) { fp_rates[4] += 1.0; }
+        }
+        
+        // Convert to percentages
+        for rate in &mut fp_rates {
+            *rate = *rate * 100.0 / test_keys as f64;
+        }
+        
+        println!("False positive rates:");
+        println!("Level 0: {:.4}%", fp_rates[0]);
+        println!("Level 1: {:.4}%", fp_rates[1]);
+        println!("Level 2: {:.4}%", fp_rates[2]);
+        println!("Level 3: {:.4}%", fp_rates[3]);
+        println!("Level 4: {:.4}%", fp_rates[4]);
+        
+        // Verify that false positive rates increase with depth (as we use fewer bits)
+        // Note: These might have statistical variation, so we check trends with some tolerance
+        assert!(fp_rates[0] <= fp_rates[1] * 1.1 || fp_rates[0] < 0.1, "FP rate should increase with level");
+        assert!(fp_rates[1] <= fp_rates[2] * 1.1 || fp_rates[1] < 0.1, "FP rate should increase with level");
+        assert!(fp_rates[2] <= fp_rates[3] * 1.1 || fp_rates[2] < 0.1, "FP rate should increase with level");
+        assert!(fp_rates[3] <= fp_rates[4] * 1.1 || fp_rates[3] < 0.1, "FP rate should increase with level");
     }
 }

@@ -25,6 +25,10 @@ pub struct LSMConfig {
     
     /// Whether to sync writes to disk
     pub sync_writes: bool,
+    
+    /// Fanout/size ratio between levels (T)
+    /// This is the ratio of sizes between adjacent levels in the LSM tree
+    pub fanout: usize,
 }
 
 impl Default for LSMConfig {
@@ -36,6 +40,7 @@ impl Default for LSMConfig {
             create_path_if_missing: true,
             max_open_files: 1000,
             sync_writes: true,
+            fanout: 4, // Default fanout of 4 (each level is 4x larger than the previous)
         }
     }
 }
@@ -217,8 +222,10 @@ impl LSMTree {
             data
         };
 
-        // Create a new run
-        let mut run = Run::new(data);
+        // Create a new run with a level-optimized Bloom filter
+        // Level 0 is the first level after the memtable
+        let fanout = self.config.fanout as f64;
+        let mut run = Run::new_for_level(data, 0, fanout);
         
         // Store the run using configured storage
         let run_id = run.store(&*self.storage, 0)?;
@@ -250,6 +257,7 @@ mod tests {
             create_path_if_missing: true,
             max_open_files: 100,
             sync_writes: false,
+            fanout: 4, // Default fanout value
         };
         (LSMTree::with_config(config), temp_dir)
     }
@@ -316,6 +324,7 @@ mod tests {
             create_path_if_missing: true, // Need this to create the path
             max_open_files: 50,
             sync_writes: true,
+            fanout: 4, // Default fanout value
         };
         
         // Create LSM tree with custom config
@@ -368,6 +377,7 @@ mod tests {
             create_path_if_missing: true,
             max_open_files: 100,
             sync_writes: false,
+            fanout: 4, // Default fanout value
         };
         
         // Create new tree - recovery should happen automatically
@@ -402,6 +412,7 @@ mod tests {
             create_path_if_missing: true,
             max_open_files: 100,
             sync_writes: false,
+            fanout: 4, // Default fanout value
         };
         
         let mut recovered_tree = LSMTree::with_config(config);
