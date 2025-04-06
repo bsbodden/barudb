@@ -89,25 +89,52 @@ While the server is running, you can enter these commands in the server terminal
 lsm-tree/
 ├── Cargo.toml
 ├── src/
-│   ├── lib.rs        # Shared library code
-│   ├── server.rs     # Server implementation
-│   └── client.rs     # Client implementation
+│   ├── bin/
+│   │   ├── client.rs    # Client implementation
+│   │   └── server.rs    # Server implementation
+│   ├── bloom/           # Bloom filter implementations
+│   │   ├── mod.rs       # Core Bloom filter code
+│   │   ├── rocks_db.rs  # RocksDB filter implementation
+│   │   └── speed_db.rs  # SpeedDB filter implementation
+│   ├── run/             # Run (data block) implementations
+│   │   ├── block.rs     # Block structure
+│   │   ├── compression.rs # Data compression
+│   │   ├── fence.rs     # Optimized fence pointers
+│   │   ├── filter.rs    # Block-level filters
+│   │   ├── lsf.rs       # Log-structured file storage
+│   │   ├── mod.rs       # Run module definitions
+│   │   ├── standard_fence.rs # Standard fence pointers
+│   │   ├── storage.rs   # Storage interface
+│   │   └── two_level_fence.rs # Two-level fence pointers
+│   ├── command.rs       # Command parsing
+│   ├── level.rs         # Level management
+│   ├── lib.rs           # Shared library code
+│   ├── lsm_tree.rs      # Main LSM tree implementation
+│   ├── memtable.rs      # In-memory buffer
+│   ├── test_helpers.rs  # Testing utilities
+│   └── types.rs         # Type definitions
+├── benches/             # Performance benchmarks
+├── tests/               # Integration tests
+└── README.md
 ```
 
 ## Development Status
 
-The implementation now includes advanced features:
+The implementation includes:
 
 - Full LSM tree implementation with multi-level storage
 - Memory buffer (memtable) for fast writes
 - Disk-based runs with sorted key-value pairs
 - Optimized Bloom filters for fast negative lookups
-- Fence pointers for efficient range queries
+- Optimized fence pointers for efficient range queries
+  - Cache-aligned memory layout for better CPU cache utilization
+  - Hardware prefetching for reduced memory latency
+  - Two-level sparse/dense indexing structure for memory efficiency
 - Monkey-optimized Bloom filters for memory efficiency
 
 ## Monkey-Optimized Bloom Filters
 
-We've implemented Bloom filters that follow the optimization strategy described in the Monkey paper. This strategy allocates different numbers of bits per entry based on the level in the LSM tree:
+Implemented Bloom filters that follow the optimization strategy described in the Monkey paper. This strategy allocates different numbers of bits per entry based on the level in the LSM tree:
 
 - Higher levels (closer to the buffer) get more bits per entry
 - Lower levels get fewer bits per entry
@@ -119,7 +146,7 @@ This optimization provides several benefits:
 3. Accepts slightly higher false positive rates for rarely accessed levels
 4. Scales appropriately based on the tree's fanout configuration
 
-Our implementation shows the following performance characteristics (with fanout=4):
+The implementation shows the following performance characteristics (with fanout=4):
 
 | Level | Bits per Entry | Memory Usage (10K entries) | False Positive Rate |
 |-------|----------------|----------------------------|---------------------|
@@ -133,6 +160,64 @@ The bit allocation formula follows an exponential decay: for a given level `i` a
 bits per entry = 32.0 / T^(i/2), with a minimum of 2 bits per entry.
 
 This approach demonstrates a memory reduction of ~94% from level 0 to level 4, while maintaining excellent false positive rates even in the lowest levels.
+
+## Optimized Fence Pointers
+
+The implementation includes state-of-the-art fence pointer optimizations to improve both lookup performance and memory efficiency:
+
+### Cache-Aligned Memory Layout
+
+Implemented fence pointers with explicit memory alignment to improve CPU cache utilization:
+
+```rust
+#[repr(align(16))]
+pub struct FencePointer {
+    pub min_key: Key,
+    pub max_key: Key,
+    pub block_index: usize,
+}
+
+#[repr(align(64))] // Align to typical cache line size
+pub struct FencePointers {
+    pub pointers: Vec<FencePointer>,
+}
+```
+
+This alignment ensures that fence pointers are loaded efficiently from memory into CPU cache lines, reducing cache misses and improving overall lookup performance.
+
+### Hardware Prefetching
+
+On x86_64 platforms, uses explicit prefetching to load data into cache before it's needed:
+
+```rustit
+unsafe {
+    _mm_prefetch(
+        &self.pointers[prefetch_idx] as *const _ as *const i8,
+        _MM_HINT_T0,
+    );
+}
+```
+
+Helps hide memory latency by anticipating what data will be needed next during searches.
+
+### Two-Level Index Structure
+
+For larger collections, implement a hierarchical index structure with:
+
+1. **Sparse Index**: A small top-level index that directs searches to the appropriate section
+2. **Dense Index**: A more detailed bottom-level index with the actual pointers
+
+This approach reduces memory usage while maintaining good lookup performance, especially for large datasets. The sparse ratio (number of dense entries per sparse entry) is configurable and can be tuned based on the collection size and access patterns.
+
+```rust
+pub struct TwoLevelFencePointers {
+    pub sparse: SparseIndex,
+    pub dense: DenseIndex,
+    pub sparse_ratio: usize,
+}
+```
+
+The structure is automatically rebuilt as needed and maintains optimal performance across a wide range of collection sizes.
 
 ## Contributing
 
