@@ -3,6 +3,7 @@ mod compression;
 mod fence;
 mod filter;
 mod lsf;
+mod standard_fence;
 mod storage;
 
 use crate::types::{Key, Value};
@@ -14,6 +15,7 @@ pub use compression::{CompressionStrategy, NoopCompression};
 pub use fence::FencePointers;
 pub use filter::{FilterStrategy, NoopFilter};
 pub use lsf::LSFStorage;
+pub use standard_fence::StandardFencePointers;
 pub use storage::{
     FileStorage, RunId, RunMetadata, RunStorage, 
     StorageFactory, StorageOptions, StorageStats

@@ -1,9 +1,9 @@
 use crate::run::Result;
 use crate::types::Key;
-use std::cmp::Ordering;
 
 /// A fence pointer represents a key range and its location in a run
 #[derive(Debug, Clone)]
+#[repr(align(16))] // Align to 16 bytes for better cache line utilization
 pub struct FencePointer {
     pub min_key: Key,
     pub max_key: Key,
@@ -12,6 +12,7 @@ pub struct FencePointer {
 
 /// A collection of fence pointers for efficient range queries
 #[derive(Debug, Clone)]
+#[repr(align(64))] // Align to typical cache line size (64 bytes)
 pub struct FencePointers {
     pub pointers: Vec<FencePointer>,
 }
@@ -61,20 +62,64 @@ impl FencePointers {
             .collect()
     }
 
-    /// Find a block that may contain the given key
+    /// Find a block that may contain the given key with optimized binary search
     pub fn find_block_for_key(&self, key: Key) -> Option<usize> {
-        self.pointers
-            .binary_search_by(|fence| {
-                if key < fence.min_key {
-                    Ordering::Greater // Continue search to the left
-                } else if key > fence.max_key {
-                    Ordering::Less // Continue search to the right
-                } else {
-                    Ordering::Equal // Found a block that may contain this key
+        // Fast path for empty case
+        if self.pointers.is_empty() {
+            return None;
+        }
+        
+        // Check bounds first to avoid unnecessary searches
+        if key < self.pointers.first().unwrap().min_key || 
+           key > self.pointers.last().unwrap().max_key {
+            return None;
+        }
+        
+        // Use exponential search for better cache locality on large collections
+        let mut low = 0;
+        let mut high = self.pointers.len() - 1;
+        
+        // Improve cache locality with exponential search for larger collections
+        if self.pointers.len() > 8 {  // Only use for larger collections
+            let mut step = 1;
+            let mut pos = 0;
+            
+            // Find a range containing the key
+            while pos < self.pointers.len() && key > self.pointers[pos].max_key {
+                pos += step;
+                step *= 2;
+                
+                if pos >= self.pointers.len() {
+                    pos = self.pointers.len() - 1;
+                    break;
                 }
-            })
-            .ok()
-            .map(|idx| self.pointers[idx].block_index)
+            }
+            
+            // Set binary search bounds from exponential search
+            if pos > 0 {
+                low = pos / 2;
+            }
+            high = pos;
+        }
+        
+        // Binary search within narrowed bounds
+        while low <= high {
+            let mid = low + (high - low) / 2;
+            let fence = &self.pointers[mid];
+            
+            if key < fence.min_key {
+                if mid == 0 {
+                    break;
+                }
+                high = mid - 1;
+            } else if key > fence.max_key {
+                low = mid + 1;
+            } else {
+                return Some(fence.block_index);
+            }
+        }
+        
+        None
     }
 
     /// Serialize fence pointers to bytes
@@ -195,5 +240,56 @@ mod tests {
         let serialized = fences.serialize().unwrap();
         let deserialized = FencePointers::deserialize(&serialized).unwrap();
         assert!(deserialized.is_empty());
+    }
+    
+    #[test]
+    fn test_optimized_binary_search() {
+        // Create a large collection of fence pointers for testing the optimized search
+        let mut fences = FencePointers::new();
+        
+        // Add fence pointers with non-overlapping ranges
+        for i in 0..1000 {
+            let min_key = i as Key * 10;
+            let max_key = i as Key * 10 + 9;
+            fences.add(min_key, max_key, i as usize);
+        }
+        
+        // Test boundary conditions
+        assert_eq!(fences.find_block_for_key(0), Some(0)); // First key
+        assert_eq!(fences.find_block_for_key(9999), Some(999)); // Last key
+        assert_eq!(fences.find_block_for_key(-1), None); // Before first key
+        assert_eq!(fences.find_block_for_key(10000), None); // After last key
+        
+        // Test random keys within ranges
+        assert_eq!(fences.find_block_for_key(123), Some(12));
+        assert_eq!(fences.find_block_for_key(4567), Some(456));
+        assert_eq!(fences.find_block_for_key(9876), Some(987));
+        
+        // Test keys at boundaries
+        assert_eq!(fences.find_block_for_key(100), Some(10)); // Start of a range
+        assert_eq!(fences.find_block_for_key(109), Some(10)); // End of a range
+        assert_eq!(fences.find_block_for_key(110), Some(11)); // Start of next range
+    }
+    
+    #[test]
+    fn test_exponential_search_threshold() {
+        // Test with smaller collection (should use standard binary search)
+        let mut small_fences = FencePointers::new();
+        for i in 0..8 {
+            small_fences.add(i as Key * 10, i as Key * 10 + 9, i as usize);
+        }
+        
+        // Test with larger collection (should use exponential search optimization)
+        let mut large_fences = FencePointers::new();
+        for i in 0..100 {
+            large_fences.add(i as Key * 10, i as Key * 10 + 9, i as usize);
+        }
+        
+        // Both should find the correct blocks
+        assert_eq!(small_fences.find_block_for_key(45), Some(4));
+        assert_eq!(large_fences.find_block_for_key(45), Some(4));
+        
+        // Test with keys that should utilize the exponential search pattern
+        assert_eq!(large_fences.find_block_for_key(950), Some(95));
     }
 }
