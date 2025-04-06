@@ -1,5 +1,6 @@
 mod block;
 mod compression;
+mod fence;
 mod filter;
 mod lsf;
 mod storage;
@@ -10,6 +11,7 @@ use std::io;
 use crate::bloom::Bloom;
 pub use block::{Block, BlockConfig};
 pub use compression::{CompressionStrategy, NoopCompression};
+pub use fence::FencePointers;
 pub use filter::{FilterStrategy, NoopFilter};
 pub use lsf::LSFStorage;
 pub use storage::{
@@ -49,14 +51,31 @@ pub struct Run {
     pub blocks: Vec<Block>,
     pub filter: Box<dyn FilterStrategy>,
     pub compression: Box<dyn CompressionStrategy>,
+    pub fence_pointers: FencePointers,
     // Optional run ID when it comes from storage
     pub id: Option<RunId>,
+}
+
+// Implement Clone manually since we have Boxed trait objects
+impl Clone for Run {
+    fn clone(&self) -> Self {
+        Run {
+            data: self.data.clone(),
+            block_config: self.block_config.clone(),
+            blocks: self.blocks.clone(),
+            filter: self.filter.box_clone(),
+            compression: Box::new(NoopCompression),
+            fence_pointers: self.fence_pointers.clone(),
+            id: self.id.clone(),
+        }
+    }
 }
 
 impl Run {
     pub fn new(data: Vec<(Key, Value)>) -> Self {
         let block_config = BlockConfig::default();
         let mut blocks = Vec::new();
+        let mut fence_pointers = FencePointers::new();
 
         // Initialize filter with data size
         // Using 10 bits per entry and 6 probes as shown in the test cases
@@ -72,6 +91,10 @@ impl Run {
                 filter.add(k).unwrap();
             }
             block.seal().unwrap();
+            
+            // Add fence pointer for this block
+            fence_pointers.add(block.header.min_key, block.header.max_key, 0);
+            
             blocks.push(block);
         }
 
@@ -81,6 +104,7 @@ impl Run {
             blocks,
             filter,
             compression: Box::new(NoopCompression),
+            fence_pointers,
             id: None,
         }
     }
@@ -103,13 +127,29 @@ impl Run {
             return None;
         }
 
-        // Check blocks
-        println!("Checking {} blocks for key {}", self.blocks.len(), key);
-        for (i, block) in self.blocks.iter().enumerate() {
-            println!("Checking block {} (min: {}, max: {})", i, block.header.min_key, block.header.max_key);
-            if let Some(value) = block.get(&key) {
-                println!("Found key {} with value {} in block {}", key, value, i);
-                return Some(value);
+        // Use fence pointers to find candidate blocks
+        if !self.fence_pointers.is_empty() {
+            // Get specific block index from fence pointers
+            if let Some(block_idx) = self.fence_pointers.find_block_for_key(key) {
+                println!("Fence pointers directed to block {} for key {}", block_idx, key);
+                if block_idx < self.blocks.len() {
+                    if let Some(value) = self.blocks[block_idx].get(&key) {
+                        println!("Found key {} with value {} in block {}", key, value, block_idx);
+                        return Some(value);
+                    }
+                }
+            }
+            // If fence pointers exist but didn't find the block, key is not present
+            return None;
+        } else {
+            // Fall back to checking all blocks
+            println!("No fence pointers available, checking {} blocks for key {}", self.blocks.len(), key);
+            for (i, block) in self.blocks.iter().enumerate() {
+                println!("Checking block {} (min: {}, max: {})", i, block.header.min_key, block.header.max_key);
+                if let Some(value) = block.get(&key) {
+                    println!("Found key {} with value {} in block {}", key, value, i);
+                    return Some(value);
+                }
             }
         }
 
@@ -120,9 +160,24 @@ impl Run {
     pub fn range(&self, start: Key, end: Key) -> Vec<(Key, Value)> {
         let mut results = Vec::new();
 
-        for block in &self.blocks {
-            if block.header.min_key <= end && block.header.max_key >= start {
-                results.extend(block.range(start, end));
+        // Use fence pointers to find candidate blocks efficiently
+        if !self.fence_pointers.is_empty() {
+            let candidate_blocks = self.fence_pointers.find_blocks_in_range(start, end);
+            println!("Fence pointers identified {} candidate blocks for range [{}, {})", 
+                     candidate_blocks.len(), start, end);
+            
+            for block_idx in candidate_blocks {
+                if block_idx < self.blocks.len() {
+                    results.extend(self.blocks[block_idx].range(start, end));
+                }
+            }
+        } else {
+            // Fall back to checking all blocks
+            println!("No fence pointers available, checking all blocks for range [{}, {})", start, end);
+            for block in &self.blocks {
+                if block.header.min_key <= end && block.header.max_key >= start {
+                    results.extend(block.range(start, end));
+                }
             }
         }
 
@@ -200,6 +255,9 @@ impl Run {
             block.seal()?;
         }
         
+        // Rebuild fence pointers to ensure they match the blocks
+        self.rebuild_fence_pointers();
+        
         // First, serialize all blocks
         let mut block_data = Vec::new();
         let mut block_offsets = Vec::new();
@@ -216,6 +274,9 @@ impl Run {
         
         // Serialize filter
         let filter_data = self.filter.serialize()?;
+        
+        // Serialize fence pointers
+        let fence_data = self.fence_pointers.serialize()?;
         
         // Now build the complete run data
         let mut result = Vec::new();
@@ -244,6 +305,11 @@ impl Run {
             result.extend_from_slice(&placeholder);
         }
         
+        // Fence pointers size and data
+        let fence_size = fence_data.len() as u32;
+        result.extend_from_slice(&fence_size.to_le_bytes());
+        result.extend_from_slice(&fence_data);
+        
         // Block offsets table (u32 for each block)
         for offset in &block_offsets {
             result.extend_from_slice(&offset.to_le_bytes());
@@ -257,6 +323,15 @@ impl Run {
         result.extend_from_slice(&checksum.to_le_bytes());
         
         Ok(result)
+    }
+    
+    /// Rebuild fence pointers based on current blocks
+    fn rebuild_fence_pointers(&mut self) {
+        self.fence_pointers.clear();
+        
+        for (i, block) in self.blocks.iter().enumerate() {
+            self.fence_pointers.add(block.header.min_key, block.header.max_key, i);
+        }
     }
 
     /// Restore a run from serialized bytes
@@ -323,6 +398,36 @@ impl Run {
             }
         };
         
+        // Fence pointers size and data (new in serialization format)
+        // Use a try-catch approach to handle both old and new format
+        let mut fence_pointers = FencePointers::new();
+        
+        // Only try to read fence pointers if there are enough bytes left
+        if offset + 4 < bytes.len() {
+            // Try to read fence pointers size
+            let fence_size = u32::from_le_bytes(bytes[offset..offset+4].try_into().unwrap());
+            offset += 4;
+            
+            // Only read fence data if size is valid
+            if fence_size as usize <= bytes.len() - offset {
+                let fence_data = &bytes[offset..offset + fence_size as usize];
+                offset += fence_size as usize;
+                
+                // Deserialize fence pointers
+                match FencePointers::deserialize(fence_data) {
+                    Ok(fp) => fence_pointers = fp,
+                    Err(e) => {
+                        println!("Warning: Failed to deserialize fence pointers: {:?}, using empty fence pointers", e);
+                        // Just keep the empty fence pointers initialized above
+                    }
+                }
+            } else {
+                // Fence size invalid, revert offset (assume it's the old format without fence pointers)
+                println!("Invalid fence size or old format without fence pointers, reverting to block offsets");
+                offset -= 4;
+            }
+        }
+        
         // Block offsets
         let mut block_offsets = Vec::with_capacity(block_count as usize);
         for _ in 0..block_count {
@@ -338,16 +443,31 @@ impl Run {
         let compression = Box::new(NoopCompression);
         
         for i in 0..block_count as usize {
-            // Calculate the offset to this block
+            // Calculate the offset to this block with bounds checking
             let block_start = blocks_start_offset + block_offsets[i] as usize;
+            
+            // Ensure block_start is within bounds
+            if block_start + 4 > bytes.len() {
+                println!("WARNING: Block start offset {} out of bounds for bytes of length {}", 
+                         block_start, bytes.len());
+                continue; // Skip this block
+            }
             
             // Read block size
             let block_size = u32::from_le_bytes(
                 bytes[block_start..block_start+4].try_into().unwrap()
             );
             
+            // Ensure block data range is within bounds
+            let block_end = block_start + 4 + block_size as usize;
+            if block_end > bytes.len() {
+                println!("WARNING: Block end offset {} out of bounds for bytes of length {}", 
+                         block_end, bytes.len());
+                continue; // Skip this block
+            }
+            
             // Read block data
-            let block_data = &bytes[block_start+4..block_start+4+block_size as usize];
+            let block_data = &bytes[block_start+4..block_end];
             
             // Deserialize block
             let block = Block::deserialize(block_data, &*compression)?;
@@ -358,12 +478,21 @@ impl Run {
             blocks.push(block);
         }
         
+        // If fence pointers are empty, rebuild them from blocks
+        if fence_pointers.is_empty() && !blocks.is_empty() {
+            println!("Building fence pointers from deserialized blocks");
+            for (i, block) in blocks.iter().enumerate() {
+                fence_pointers.add(block.header.min_key, block.header.max_key, i);
+            }
+        }
+        
         Ok(Run {
             data,
             block_config: BlockConfig::default(),
             blocks,
             filter: Box::new(filter),
             compression,
+            fence_pointers,
             id: None,
         })
     }
@@ -411,6 +540,60 @@ mod tests {
 
         // Verify filter works
         assert!(run.filter.may_contain(&1));
+        
+        // Verify fence pointers were created
+        assert_eq!(run.fence_pointers.len(), 1);
+        assert_eq!(run.fence_pointers.find_block_for_key(2), Some(0));
+    }
+    
+    #[test]
+    fn test_fence_pointers() {
+        // Create a run with multiple blocks for testing fence pointers
+        let mut run = Run::new(vec![]);
+        let mut block1 = Block::new();
+        block1.add_entry(1, 100).unwrap();
+        block1.add_entry(2, 200).unwrap();
+        block1.seal().unwrap();
+        
+        let mut block2 = Block::new();
+        block2.add_entry(10, 1000).unwrap();
+        block2.add_entry(20, 2000).unwrap();
+        block2.seal().unwrap();
+        
+        let mut block3 = Block::new();
+        block3.add_entry(100, 10000).unwrap();
+        block3.add_entry(200, 20000).unwrap();
+        block3.seal().unwrap();
+        
+        run.blocks = vec![block1, block2, block3];
+        run.rebuild_fence_pointers();
+        
+        // Check fence pointers exist
+        assert_eq!(run.fence_pointers.len(), 3);
+        
+        // Check block lookup
+        assert_eq!(run.fence_pointers.find_block_for_key(1), Some(0));
+        assert_eq!(run.fence_pointers.find_block_for_key(15), Some(1));
+        assert_eq!(run.fence_pointers.find_block_for_key(150), Some(2));
+        assert_eq!(run.fence_pointers.find_block_for_key(5), None);
+        
+        // Check range lookup
+        let blocks_in_range = run.fence_pointers.find_blocks_in_range(5, 25);
+        assert_eq!(blocks_in_range, vec![1]); // Only block 1 overlaps with range [5, 25)
+        
+        let blocks_in_range = run.fence_pointers.find_blocks_in_range(1, 11);
+        assert_eq!(blocks_in_range, vec![0, 1]); // Blocks 0 and 1 overlap with range [1, 11)
+        
+        // Check serialization/deserialization
+        let mut serialized_run = run.clone();
+        let bytes = serialized_run.serialize().unwrap();
+        let deserialized_run = Run::deserialize(&bytes).unwrap();
+        
+        // Check fence pointers were properly serialized and deserialized
+        assert_eq!(deserialized_run.fence_pointers.len(), 3);
+        assert_eq!(deserialized_run.fence_pointers.find_block_for_key(1), Some(0));
+        assert_eq!(deserialized_run.fence_pointers.find_block_for_key(15), Some(1));
+        assert_eq!(deserialized_run.fence_pointers.find_block_for_key(150), Some(2));
     }
 
     #[test]

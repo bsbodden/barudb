@@ -360,7 +360,7 @@ impl FilterStrategy for Bloom {
         })
     }
     
-    fn clone_box(&self) -> Box<dyn crate::run::FilterStrategy> {
+    fn box_clone(&self) -> Box<dyn crate::run::FilterStrategy> {
         // Create deterministic copy to ensure consistent serialization
         let mut data = Vec::with_capacity(self.data.len());
         // Copy values in a stable order to ensure deterministic behavior

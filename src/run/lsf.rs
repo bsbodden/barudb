@@ -1,5 +1,5 @@
 use crate::run::{
-    Error, Result, Run, RunId, RunMetadata, RunStorage, StorageOptions, StorageStats
+    Error, FencePointers, Result, Run, RunId, RunMetadata, RunStorage, StorageOptions, StorageStats
 };
 use crate::types::Key;
 use std::collections::HashMap;
@@ -488,8 +488,9 @@ impl LSFStorage {
             data: run.data.clone(),
             block_config: run.block_config.clone(),
             blocks: run.blocks.clone(),
-            filter: run.filter.clone_box(),
+            filter: run.filter.box_clone(),
             compression: run.compression.clone_box(),
+            fence_pointers: FencePointers::new(), // Will be rebuilt during serialization
             id: Some(run_id),  // Set the ID before serialization
         };
         
@@ -960,8 +961,9 @@ impl RunStorage for LSFStorage {
             data: run.data.clone(),
             block_config: run.block_config.clone(),
             blocks: run.blocks.clone(),
-            filter: run.filter.clone_box(),
+            filter: run.filter.box_clone(),
             compression: run.compression.clone_box(),
+            fence_pointers: FencePointers::new(), // Will be rebuilt during serialization
             id: None,
         };
         
@@ -988,8 +990,9 @@ impl RunStorage for LSFStorage {
             data: run_clone.data.clone(),
             block_config: run_clone.block_config.clone(),
             blocks: run_clone.blocks.clone(),
-            filter: run_clone.filter.clone_box(),
+            filter: run_clone.filter.box_clone(),
             compression: run_clone.compression.clone_box(),
+            fence_pointers: FencePointers::new(), // Will be rebuilt during serialization
             id: Some(run_id),  // Set the ID before serialization
         };
         

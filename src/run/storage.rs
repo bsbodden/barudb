@@ -1,4 +1,4 @@
-use crate::run::{Result, Run};
+use crate::run::{FencePointers, Result, Run};
 use crate::types::Key;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -225,8 +225,9 @@ impl RunStorage for FileStorage {
             data: run.data.clone(),
             block_config: run.block_config.clone(),
             blocks: run.blocks.clone(),
-            filter: run.filter.clone_box(),
+            filter: run.filter.box_clone(),
             compression: run.compression.clone_box(),
+            fence_pointers: FencePointers::new(), // Will be rebuilt during serialization
             id: Some(run_id),
         };
         
