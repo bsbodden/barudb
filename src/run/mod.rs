@@ -1,6 +1,7 @@
 mod block;
 mod compression;
 mod compressed_fence;
+mod fastlane_fence;
 mod fence;
 mod filter;
 mod lsf;
@@ -16,6 +17,9 @@ pub use block::{Block, BlockConfig};
 pub use compression::{CompressionStrategy, NoopCompression};
 pub use compressed_fence::{
     CompressedFencePointers, AdaptivePrefixFencePointers, PrefixGroup
+};
+pub use fastlane_fence::{
+    FastLaneFencePointers, AdaptiveFastLaneFencePointers, FastLaneGroup
 };
 pub use fence::FencePointers;
 pub use filter::{FilterStrategy, NoopFilter};
@@ -167,20 +171,26 @@ impl Run {
     }
 
     pub fn get(&self, key: Key) -> Option<Value> {
-        println!("Run get - key: {}, blocks: {}, data items: {}", 
-                key, self.blocks.len(), self.data.len());
+        if std::env::var("RUST_LOG").map(|v| v == "debug").unwrap_or(false) {
+            println!("Run get - key: {}, blocks: {}, data items: {}", 
+                    key, self.blocks.len(), self.data.len());
+        }
                 
         // First check data directly (for debugging)
         for (k, v) in &self.data {
             if *k == key {
-                println!("Found key {} with value {} in run.data", key, v);
+                if std::env::var("RUST_LOG").map(|v| v == "debug").unwrap_or(false) {
+                    println!("Found key {} with value {} in run.data", key, v);
+                }
                 return Some(*v);
             }
         }
         
         // First check filter
         if !self.filter.may_contain(&key) {
-            println!("Key {} not in filter", key);
+            if std::env::var("RUST_LOG").map(|v| v == "debug").unwrap_or(false) {
+                println!("Key {} not in filter", key);
+            }
             return None;
         }
 
@@ -188,10 +198,14 @@ impl Run {
         if !self.fence_pointers.is_empty() {
             // Get specific block index from fence pointers
             if let Some(block_idx) = self.fence_pointers.find_block_for_key(key) {
-                println!("Fence pointers directed to block {} for key {}", block_idx, key);
+                if std::env::var("RUST_LOG").map(|v| v == "debug").unwrap_or(false) {
+                    println!("Fence pointers directed to block {} for key {}", block_idx, key);
+                }
                 if block_idx < self.blocks.len() {
                     if let Some(value) = self.blocks[block_idx].get(&key) {
-                        println!("Found key {} with value {} in block {}", key, value, block_idx);
+                        if std::env::var("RUST_LOG").map(|v| v == "debug").unwrap_or(false) {
+                            println!("Found key {} with value {} in block {}", key, value, block_idx);
+                        }
                         return Some(value);
                     }
                 }
@@ -200,17 +214,25 @@ impl Run {
             return None;
         } else {
             // Fall back to checking all blocks
-            println!("No fence pointers available, checking {} blocks for key {}", self.blocks.len(), key);
+            if std::env::var("RUST_LOG").map(|v| v == "debug").unwrap_or(false) {
+                println!("No fence pointers available, checking {} blocks for key {}", self.blocks.len(), key);
+            }
             for (i, block) in self.blocks.iter().enumerate() {
-                println!("Checking block {} (min: {}, max: {})", i, block.header.min_key, block.header.max_key);
+                if std::env::var("RUST_LOG").map(|v| v == "debug").unwrap_or(false) {
+                    println!("Checking block {} (min: {}, max: {})", i, block.header.min_key, block.header.max_key);
+                }
                 if let Some(value) = block.get(&key) {
-                    println!("Found key {} with value {} in block {}", key, value, i);
+                    if std::env::var("RUST_LOG").map(|v| v == "debug").unwrap_or(false) {
+                        println!("Found key {} with value {} in block {}", key, value, i);
+                    }
                     return Some(value);
                 }
             }
         }
 
-        println!("Key {} not found in any block", key);
+        if std::env::var("RUST_LOG").map(|v| v == "debug").unwrap_or(false) {
+            println!("Key {} not found in any block", key);
+        }
         None
     }
 
@@ -220,8 +242,10 @@ impl Run {
         // Use fence pointers to find candidate blocks efficiently
         if !self.fence_pointers.is_empty() {
             let candidate_blocks = self.fence_pointers.find_blocks_in_range(start, end);
-            println!("Fence pointers identified {} candidate blocks for range [{}, {})", 
-                     candidate_blocks.len(), start, end);
+            if std::env::var("RUST_LOG").map(|v| v == "debug").unwrap_or(false) {
+                println!("Fence pointers identified {} candidate blocks for range [{}, {})", 
+                         candidate_blocks.len(), start, end);
+            }
             
             for block_idx in candidate_blocks {
                 if block_idx < self.blocks.len() {
@@ -230,7 +254,9 @@ impl Run {
             }
         } else {
             // Fall back to checking all blocks
-            println!("No fence pointers available, checking all blocks for range [{}, {})", start, end);
+            if std::env::var("RUST_LOG").map(|v| v == "debug").unwrap_or(false) {
+                println!("No fence pointers available, checking all blocks for range [{}, {})", start, end);
+            }
             for block in &self.blocks {
                 if block.header.min_key <= end && block.header.max_key >= start {
                     results.extend(block.range(start, end));
@@ -405,18 +431,21 @@ impl Run {
         let data_for_checksum = &bytes[..bytes.len() - 8];
         let computed_checksum = xxhash_rust::xxh3::xxh3_64(data_for_checksum);
         
-        // Debug output to help diagnose issues
-        println!("Run deserialize - Length: {}, Stored checksum: {}, Computed checksum: {}", 
-                bytes.len(), stored_checksum, computed_checksum);
-        
-        if computed_checksum != stored_checksum {
-            println!("WARNING: Run checksum mismatch - accepting for debugging");
-            // For debugging, continue despite checksum mismatch
-            // return Err(Error::Serialization(format!(
-            //     "Checksum mismatch: computed={}, stored={}",
-            //     computed_checksum, stored_checksum
-            // )));
+        // Debug output to help diagnose issues - only when RUST_LOG=debug
+        if std::env::var("RUST_LOG").map(|v| v == "debug").unwrap_or(false) {
+            println!("Run deserialize - Length: {}, Stored checksum: {}, Computed checksum: {}", 
+                    bytes.len(), stored_checksum, computed_checksum);
+            
+            if computed_checksum != stored_checksum {
+                println!("WARNING: Run checksum mismatch - accepting for debugging");
+            }
         }
+        
+        // For debugging, continue despite checksum mismatch
+        // return Err(Error::Serialization(format!(
+        //     "Checksum mismatch: computed={}, stored={}",
+        //     computed_checksum, stored_checksum
+        // )));
         
         // Read run header
         let mut offset = 0;
@@ -443,13 +472,17 @@ impl Run {
         
         // Deserialize filter with robust error handling
         let filter = if filter_data.is_empty() {
-            println!("Warning: Empty filter data in Run::deserialize, using placeholder filter");
+            if std::env::var("RUST_LOG").map(|v| v == "debug").unwrap_or(false) {
+                println!("Warning: Empty filter data in Run::deserialize, using placeholder filter");
+            }
             Bloom::new(100, 6) // Create a default placeholder filter
         } else {
             match Bloom::deserialize(filter_data) {
                 Ok(f) => f,
                 Err(e) => {
-                    println!("Warning: Failed to deserialize filter: {:?}, using placeholder filter", e);
+                    if std::env::var("RUST_LOG").map(|v| v == "debug").unwrap_or(false) {
+                        println!("Warning: Failed to deserialize filter: {:?}, using placeholder filter", e);
+                    }
                     Bloom::new(100, 6) // Create a default placeholder filter on error
                 }
             }
@@ -474,13 +507,17 @@ impl Run {
                 match FencePointers::deserialize(fence_data) {
                     Ok(fp) => fence_pointers = fp,
                     Err(e) => {
-                        println!("Warning: Failed to deserialize fence pointers: {:?}, using empty fence pointers", e);
+                        if std::env::var("RUST_LOG").map(|v| v == "debug").unwrap_or(false) {
+                            println!("Warning: Failed to deserialize fence pointers: {:?}, using empty fence pointers", e);
+                        }
                         // Just keep the empty fence pointers initialized above
                     }
                 }
             } else {
                 // Fence size invalid, revert offset (assume it's the old format without fence pointers)
-                println!("Invalid fence size or old format without fence pointers, reverting to block offsets");
+                if std::env::var("RUST_LOG").map(|v| v == "debug").unwrap_or(false) {
+                    println!("Invalid fence size or old format without fence pointers, reverting to block offsets");
+                }
                 offset -= 4;
             }
         }
@@ -505,8 +542,10 @@ impl Run {
             
             // Ensure block_start is within bounds
             if block_start + 4 > bytes.len() {
-                println!("WARNING: Block start offset {} out of bounds for bytes of length {}", 
-                         block_start, bytes.len());
+                if std::env::var("RUST_LOG").map(|v| v == "debug").unwrap_or(false) {
+                    println!("WARNING: Block start offset {} out of bounds for bytes of length {}", 
+                             block_start, bytes.len());
+                }
                 continue; // Skip this block
             }
             
@@ -518,8 +557,10 @@ impl Run {
             // Ensure block data range is within bounds
             let block_end = block_start + 4 + block_size as usize;
             if block_end > bytes.len() {
-                println!("WARNING: Block end offset {} out of bounds for bytes of length {}", 
-                         block_end, bytes.len());
+                if std::env::var("RUST_LOG").map(|v| v == "debug").unwrap_or(false) {
+                    println!("WARNING: Block end offset {} out of bounds for bytes of length {}", 
+                             block_end, bytes.len());
+                }
                 continue; // Skip this block
             }
             
@@ -537,7 +578,9 @@ impl Run {
         
         // If fence pointers are empty, rebuild them from blocks
         if fence_pointers.is_empty() && !blocks.is_empty() {
-            println!("Building fence pointers from deserialized blocks");
+            if std::env::var("RUST_LOG").map(|v| v == "debug").unwrap_or(false) {
+                println!("Building fence pointers from deserialized blocks");
+            }
             for (i, block) in blocks.iter().enumerate() {
                 fence_pointers.add(block.header.min_key, block.header.max_key, i);
             }

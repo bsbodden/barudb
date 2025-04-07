@@ -351,7 +351,9 @@ impl FilterStrategy for Bloom {
         Self: Sized,
     {
         if bytes.len() < 8 {
-            println!("WARNING: Invalid buffer size for Bloom filter deserialization, creating empty filter");
+            if std::env::var("RUST_LOG").map(|v| v == "debug").unwrap_or(false) {
+                println!("WARNING: Invalid buffer size for Bloom filter deserialization, creating empty filter");
+            }
             // For testing, return a minimal filter instead of failing
             return Ok(Bloom::new(100, 6));
         }
@@ -362,7 +364,9 @@ impl FilterStrategy for Bloom {
 
         // If header values are suspicious, create an empty filter
         if len == 0 || len > 1_000_000 || num_double_probes == 0 || num_double_probes > 10 {
-            println!("WARNING: Invalid Bloom filter parameters, creating empty filter");
+            if std::env::var("RUST_LOG").map(|v| v == "debug").unwrap_or(false) {
+                println!("WARNING: Invalid Bloom filter parameters, creating empty filter");
+            }
             return Ok(Bloom::new(100, 6));
         }
 
@@ -389,7 +393,7 @@ impl FilterStrategy for Bloom {
             }
         }
 
-        if !read_ok {
+        if !read_ok && std::env::var("RUST_LOG").map(|v| v == "debug").unwrap_or(false) {
             println!("WARNING: Incomplete Bloom filter data, some values may be zero");
         }
 
