@@ -21,6 +21,50 @@ pub enum CompactionPolicyType {
     LazyLeveled,
 }
 
+/// Storage backend types
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StorageType {
+    /// File-based storage implementation (default)
+    File,
+    /// Log-Structured File storage implementation
+    LSF,
+    /// Memory-mapped file storage (planned for future)
+    MMap,
+}
+
+impl StorageType {
+    /// Convert a string to a StorageType
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "file" => Some(StorageType::File),
+            "lsf" => Some(StorageType::LSF),
+            "mmap" => Some(StorageType::MMap),
+            _ => None,
+        }
+    }
+    
+    /// Convert StorageType to string
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            StorageType::File => "file",
+            StorageType::LSF => "lsf",
+            StorageType::MMap => "mmap",
+        }
+    }
+}
+
+impl ToString for StorageType {
+    fn to_string(&self) -> String {
+        self.as_str().to_string()
+    }
+}
+
+impl Default for StorageType {
+    fn default() -> Self {
+        StorageType::File
+    }
+}
+
 impl CompactionPolicyType {
     /// Convert a string to a CompactionPolicyType
     pub fn from_str(s: &str) -> Option<Self> {

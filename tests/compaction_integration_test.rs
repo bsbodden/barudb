@@ -1,12 +1,12 @@
 use lsm_tree::lsm_tree::{LSMTree, LSMConfig};
-use lsm_tree::types::CompactionPolicyType;
+use lsm_tree::types::{CompactionPolicyType, StorageType};
 use tempfile::tempdir;
 
 fn create_test_tree(run_threshold: usize, policy_type: CompactionPolicyType) -> (LSMTree, tempfile::TempDir) {
     let temp_dir = tempdir().unwrap();
     let config = LSMConfig {
         buffer_size: 4, // Small buffer for testing
-        storage_type: "file".to_string(),
+        storage_type: StorageType::File,
         storage_path: temp_dir.path().to_path_buf(),
         create_path_if_missing: true,
         max_open_files: 100,
@@ -169,7 +169,7 @@ fn test_recovery_with_compaction() {
     // Create first tree with tiered compaction
     let config = LSMConfig {
         buffer_size: 4,
-        storage_type: "file".to_string(),
+        storage_type: StorageType::File,
         storage_path: storage_path.clone(),
         create_path_if_missing: true,
         max_open_files: 100,
@@ -213,7 +213,7 @@ fn test_recovery_with_leveled_compaction() {
     // Create first tree with leveled compaction
     let config = LSMConfig {
         buffer_size: 4,
-        storage_type: "file".to_string(),
+        storage_type: StorageType::File,
         storage_path: storage_path.clone(),
         create_path_if_missing: true,
         max_open_files: 100,
@@ -342,7 +342,7 @@ fn test_recovery_with_lazy_leveled_compaction() {
     // Create first tree with lazy leveled compaction
     let config = LSMConfig {
         buffer_size: 4,
-        storage_type: "file".to_string(),
+        storage_type: StorageType::File,
         storage_path: storage_path.clone(),
         create_path_if_missing: true,
         max_open_files: 100,

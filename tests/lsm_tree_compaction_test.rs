@@ -1,5 +1,5 @@
 use lsm_tree::lsm_tree::{LSMTree, LSMConfig};
-use lsm_tree::types::CompactionPolicyType;
+use lsm_tree::types::{CompactionPolicyType, StorageType};
 use tempfile::tempdir;
 
 #[test]
@@ -10,7 +10,7 @@ fn test_lsm_tree_with_compaction_policy() {
     // Create LSM tree with tiered compaction policy
     let config = LSMConfig {
         buffer_size: 4, // Small buffer for testing
-        storage_type: "file".to_string(),
+        storage_type: StorageType::File,
         storage_path: temp_dir.path().to_path_buf(),
         create_path_if_missing: true,
         max_open_files: 100,

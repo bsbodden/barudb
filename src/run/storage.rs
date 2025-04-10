@@ -1,5 +1,5 @@
 use crate::run::{FencePointers, Result, Run};
-use crate::types::Key;
+use crate::types::{Key, StorageType};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -107,15 +107,25 @@ pub struct StorageFactory;
 
 impl StorageFactory {
     /// Create a new storage instance with the given type
-    pub fn create(storage_type: &str, options: StorageOptions) -> Result<Arc<dyn RunStorage>> {
+    pub fn create_from_type(storage_type: StorageType, options: StorageOptions) -> Result<Arc<dyn RunStorage>> {
         match storage_type {
-            "file" => Ok(Arc::new(FileStorage::new(options)?)),
-            "lsf" => Ok(Arc::new(super::LSFStorage::new(options)?)),
-            // We'll add other storage types later ("mmap", etc.)
-            _ => Err(super::Error::Storage(format!(
+            StorageType::File => Ok(Arc::new(FileStorage::new(options)?)),
+            StorageType::LSF => Ok(Arc::new(super::LSFStorage::new(options)?)),
+            StorageType::MMap => Err(super::Error::Storage(
+                "MMap storage not yet implemented".to_string()
+            )),
+        }
+    }
+    
+    /// Create a new storage instance from a string type (for backward compatibility)
+    pub fn create(storage_type: &str, options: StorageOptions) -> Result<Arc<dyn RunStorage>> {
+        if let Some(storage_type) = StorageType::from_str(storage_type) {
+            Self::create_from_type(storage_type, options)
+        } else {
+            Err(super::Error::Storage(format!(
                 "Unknown storage type: {}",
                 storage_type
-            ))),
+            )))
         }
     }
 }

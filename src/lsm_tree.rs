@@ -1,7 +1,7 @@
 use crate::level::Level;
 use crate::memtable::Memtable;
 use crate::run::{Run, RunStorage, StorageFactory, StorageOptions};
-use crate::types::{Key, Result, Value, TOMBSTONE, CompactionPolicyType};
+use crate::types::{Key, Result, Value, TOMBSTONE, CompactionPolicyType, StorageType};
 use crate::compaction::{CompactionPolicy, CompactionFactory};
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
@@ -12,8 +12,8 @@ pub struct LSMConfig {
     /// Size of the memory buffer in pages
     pub buffer_size: usize,
     
-    /// Storage backend to use (file, lsf, mmap)
-    pub storage_type: String,
+    /// Storage backend to use (File, LSF, MMap)
+    pub storage_type: StorageType,
     
     /// Base path for storage
     pub storage_path: PathBuf,
@@ -43,7 +43,7 @@ impl Default for LSMConfig {
     fn default() -> Self {
         Self {
             buffer_size: 128,
-            storage_type: "file".to_string(),
+            storage_type: StorageType::File,
             storage_path: PathBuf::from("./data"),
             create_path_if_missing: true,
             max_open_files: 1000,
@@ -83,7 +83,7 @@ impl LSMTree {
         };
         
         // Create storage backend
-        let storage = StorageFactory::create(&config.storage_type, storage_options)
+        let storage = StorageFactory::create_from_type(config.storage_type.clone(), storage_options)
             .expect("Failed to create storage backend");
         
         // Create compaction policy
@@ -332,7 +332,7 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let config = LSMConfig {
             buffer_size: 128,
-            storage_type: "file".to_string(),
+            storage_type: StorageType::File,
             storage_path: temp_dir.path().to_path_buf(),
             create_path_if_missing: true,
             max_open_files: 100,
@@ -401,7 +401,7 @@ mod tests {
         
         let config = LSMConfig {
             buffer_size: 512,
-            storage_type: "file".to_string(),
+            storage_type: StorageType::File,
             storage_path: config_dir.clone(),
             create_path_if_missing: true, // Need this to create the path
             max_open_files: 50,
@@ -418,6 +418,7 @@ mod tests {
         assert_eq!(lsm_tree.get_config().buffer_size, 512);
         assert_eq!(lsm_tree.get_config().max_open_files, 50);
         assert_eq!(lsm_tree.get_config().storage_path, config_dir);
+        assert_eq!(lsm_tree.get_config().storage_type, StorageType::File);
         assert!(lsm_tree.get_config().create_path_if_missing);
         assert!(lsm_tree.get_config().sync_writes);
         
@@ -433,7 +434,7 @@ mod tests {
         });
         
         assert_eq!(default_tree.get_config().buffer_size, 256);
-        assert_eq!(default_tree.get_config().storage_type, "file");
+        assert_eq!(default_tree.get_config().storage_type, StorageType::File);
         assert!(default_tree.get_config().create_path_if_missing);
     }
     
@@ -456,7 +457,7 @@ mod tests {
         // Create a new tree with the same storage path
         let config = LSMConfig {
             buffer_size: 128,
-            storage_type: "file".to_string(),
+            storage_type: StorageType::File,
             storage_path: storage_path.clone(),
             create_path_if_missing: true,
             max_open_files: 100,
@@ -493,7 +494,7 @@ mod tests {
         // Create a new tree with the same storage path
         let config = LSMConfig {
             buffer_size: 128,
-            storage_type: "file".to_string(),
+            storage_type: StorageType::File,
             storage_path: storage_path,
             create_path_if_missing: true,
             max_open_files: 100,

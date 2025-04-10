@@ -1,7 +1,7 @@
 use lsm_tree::run::{
     Error, FileStorage, Run, RunId, RunStorage, StorageFactory, StorageOptions
 };
-use lsm_tree::types::Key;
+use lsm_tree::types::{Key, StorageType};
 use tempfile::tempdir;
 
 #[test]
@@ -278,7 +278,7 @@ fn test_storage_factory() {
     };
     
     // Create storage using factory
-    let storage = StorageFactory::create("file", options).unwrap();
+    let storage = StorageFactory::create_from_type(StorageType::File, options).unwrap();
     
     // Try to create a run
     let run = Run::new(vec![(1, 100), (2, 200)]);

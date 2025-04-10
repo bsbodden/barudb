@@ -1,7 +1,7 @@
 use lsm_tree::run::{
     LSFStorage, Run, RunStorage, StorageOptions
 };
-use lsm_tree::types::Key;
+use lsm_tree::types::{Key, StorageType};
 use tempfile::tempdir;
 
 #[test]
@@ -247,7 +247,7 @@ fn test_lsf_storage_factory() {
     };
     
     // Use storage factory to create LSFStorage
-    let storage = lsm_tree::run::StorageFactory::create("lsf", options).unwrap();
+    let storage = lsm_tree::run::StorageFactory::create_from_type(StorageType::LSF, options).unwrap();
     
     // Create a run
     let run = Run::new(vec![(1, 100), (2, 200)]);

@@ -150,6 +150,7 @@ mod tests {
     use super::*;
     use tempfile::tempdir;
     use crate::run::{StorageFactory, StorageOptions};
+    use crate::types::StorageType;
     
     #[test]
     fn test_leveled_compaction_should_compact_level0() {
@@ -197,7 +198,7 @@ mod tests {
             max_open_files: 100,
             sync_writes: false,
         };
-        let storage = StorageFactory::create("file", options).unwrap();
+        let storage = StorageFactory::create_from_type(StorageType::File, options).unwrap();
         
         let policy = LeveledCompactionPolicy::new(4);
         

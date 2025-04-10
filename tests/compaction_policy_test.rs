@@ -1,6 +1,6 @@
 use lsm_tree::run::{Run, RunStorage, StorageFactory, StorageOptions};
 use lsm_tree::level::Level;
-use lsm_tree::types::{Key, Value, CompactionPolicyType};
+use lsm_tree::types::{Key, Value, CompactionPolicyType, StorageType};
 use lsm_tree::compaction::{CompactionPolicy, TieredCompactionPolicy, CompactionFactory};
 use tempfile::tempdir;
 
@@ -12,7 +12,7 @@ fn create_test_storage() -> (std::sync::Arc<dyn RunStorage>, tempfile::TempDir) 
         max_open_files: 100,
         sync_writes: false,
     };
-    let storage = StorageFactory::create("file", options).unwrap();
+    let storage = StorageFactory::create_from_type(StorageType::File, options).unwrap();
     (storage, temp_dir)
 }
 
