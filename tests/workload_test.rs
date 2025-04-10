@@ -1,6 +1,7 @@
 use lsm_tree::test_helpers::{send_command, start_server};
 
 #[tokio::test]
+#[ignore = "Long-running workload test; run explicitly with 'cargo test test_workload_execution -- --ignored'"]
 async fn test_workload_execution() {
     let (mut server, port) = start_server().await;
 

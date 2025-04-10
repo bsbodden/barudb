@@ -100,6 +100,7 @@ fn run_multiple_stores_benchmark(storage: &dyn RunStorage, run_count: usize) -> 
 }
 
 #[test]
+#[ignore = "Long-running performance test; run explicitly with 'cargo test compare_storage_implementations -- --ignored'"]
 fn compare_storage_implementations() {
     println!("\n=== Storage Implementation Performance Comparison ===\n");
     

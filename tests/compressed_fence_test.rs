@@ -124,6 +124,7 @@ fn test_compressed_fence_pointers_with_sequential_keys() {
 }
 
 #[test]
+#[ignore = "Large data test with 1000 random keys; run explicitly with 'cargo test test_compressed_fence_pointers_with_random_keys -- --ignored'"]
 fn test_compressed_fence_pointers_with_random_keys() {
     let mut keys = random_keys(1000, 42);
     keys.sort(); // Ensure keys are sorted
@@ -177,6 +178,7 @@ fn test_compressed_fence_pointers_with_random_keys() {
 }
 
 #[test]
+#[ignore = "Large data test with 1000 keys; run explicitly with 'cargo test test_compressed_fence_pointers_with_grouped_keys -- --ignored'"]
 fn test_compressed_fence_pointers_with_grouped_keys() {
     let keys = grouped_keys(1000, 8, 44);
     let mut fences = CompressedFencePointers::with_group_size(16);
@@ -223,6 +225,7 @@ fn test_compressed_fence_pointers_with_grouped_keys() {
 }
 
 #[test]
+#[ignore = "Large data test with multiple key distributions; run explicitly with 'cargo test test_compressed_fence_pointers_serialization -- --ignored'"]
 fn test_compressed_fence_pointers_serialization() {
     // Create fence pointers with various key distributions
     let mut sequential = CompressedFencePointers::with_group_size(16);

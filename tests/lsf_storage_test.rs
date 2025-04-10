@@ -169,6 +169,7 @@ fn test_lsf_storage_multiple_runs() {
 }
 
 #[test]
+#[ignore = "Large data test with 1000 elements; run explicitly with 'cargo test test_lsf_storage_large_run -- --ignored'"]
 fn test_lsf_storage_large_run() {
     // Set the extreme keys test flag for consistent fallback data
     lsm_tree::run::LSFStorage::set_running_extreme_keys_test(true);

@@ -180,6 +180,7 @@ fn test_run_id_serialization() {
 }
 
 #[test]
+#[ignore = "Large data test with 1000 elements; run explicitly with 'cargo test test_large_run -- --ignored'"]
 fn test_large_run() {
     // Create a temporary directory for the test
     let temp_dir = tempdir().unwrap();

@@ -23,6 +23,41 @@ cd lsm-tree
 cargo build --release
 ```
 
+## Testing
+
+The project includes various types of tests to verify functionality and performance.
+
+### Running Standard Tests
+
+To run all regular tests (excluding long-running tests):
+
+```bash
+cargo test
+```
+
+This will run all tests except those marked with `#[ignore]`.
+
+### Running Workload Tests
+
+The workload tests simulate real-world database usage but can take a long time to complete:
+
+```bash
+# Run the workload integration test
+cargo test test_workload_execution -- --ignored
+```
+
+### Running Performance Tests
+
+Performance tests evaluate various aspects of the system but are excluded from regular test runs:
+
+```bash
+# Run all performance tests
+cargo test -- --ignored
+
+# Run a specific performance test
+cargo test compare_storage_implementations -- --ignored
+```
+
 ## Running Benchmarks
 
 The project includes several benchmarks for evaluating performance of different components.

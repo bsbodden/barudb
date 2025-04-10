@@ -321,6 +321,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Long-running performance test; run explicitly with 'cargo test test_performance -- --ignored'"]
     fn test_performance() {
         for m in 1..=2 {
             // Reduced iterations for faster tests

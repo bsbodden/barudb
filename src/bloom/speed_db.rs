@@ -375,6 +375,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Long-running multithreaded throughput test; run explicitly with 'cargo test test_concurrent_throughput -- --ignored'"]
     fn test_concurrent_throughput() {
         use std::sync::Arc;
         use std::thread;
