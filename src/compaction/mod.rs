@@ -1,10 +1,12 @@
 mod tiered;
+mod leveled;
 
 use crate::level::Level;
 use crate::run::{Run, RunStorage};
 use crate::types::{Result, CompactionPolicyType};
 
 pub use tiered::TieredCompactionPolicy;
+pub use leveled::LeveledCompactionPolicy;
 
 /// Trait for compaction policy implementations
 pub trait CompactionPolicy: Send + Sync {
@@ -49,16 +51,17 @@ pub struct CompactionFactory;
 
 impl CompactionFactory {
     /// Create a new compaction policy by policy type
-    pub fn create_from_type(policy_type: CompactionPolicyType, run_threshold: usize) -> Result<Box<dyn CompactionPolicy>> {
+    pub fn create_from_type(policy_type: CompactionPolicyType, threshold: usize) -> Result<Box<dyn CompactionPolicy>> {
         match policy_type {
-            CompactionPolicyType::Tiered => Ok(Box::new(TieredCompactionPolicy::new(run_threshold))),
+            CompactionPolicyType::Tiered => Ok(Box::new(TieredCompactionPolicy::new(threshold))),
+            CompactionPolicyType::Leveled => Ok(Box::new(LeveledCompactionPolicy::new(threshold))),
         }
     }
     
     /// Create a new compaction policy by name (legacy method)
-    pub fn create(name: &str, run_threshold: usize) -> Result<Box<dyn CompactionPolicy>> {
+    pub fn create(name: &str, threshold: usize) -> Result<Box<dyn CompactionPolicy>> {
         match CompactionPolicyType::from_str(name) {
-            Some(policy_type) => Self::create_from_type(policy_type, run_threshold),
+            Some(policy_type) => Self::create_from_type(policy_type, threshold),
             None => Err(crate::types::Error::CompactionError),
         }
     }
@@ -70,18 +73,29 @@ mod tests {
     
     #[test]
     fn test_compaction_factory() {
+        // Create a test level with 3 runs
+        let mut test_level = Level::new();
+        test_level.add_run(Run::new(vec![(1, 100)]));
+        test_level.add_run(Run::new(vec![(2, 200)]));
+        test_level.add_run(Run::new(vec![(3, 300)]));
+        
         // Test creating tiered policy using enum
-        let policy = CompactionFactory::create_from_type(CompactionPolicyType::Tiered, 3).unwrap();
-        assert!(policy.should_compact(&{
-            let mut level = Level::new();
-            level.add_run(Run::new(vec![(1, 100)]));
-            level.add_run(Run::new(vec![(2, 200)]));
-            level.add_run(Run::new(vec![(3, 300)]));
-            level
-        }, 0));
+        let tiered_policy = CompactionFactory::create_from_type(CompactionPolicyType::Tiered, 3).unwrap();
+        assert!(tiered_policy.should_compact(&test_level, 0));
+        
+        // Test creating leveled policy using enum
+        let leveled_policy = CompactionFactory::create_from_type(CompactionPolicyType::Leveled, 4).unwrap();
+        assert!(leveled_policy.should_compact(&test_level, 0));
+        
+        // Test creating level 1 with 2 runs (violates leveled invariant)
+        let mut level1 = Level::new();
+        level1.add_run(Run::new(vec![(1, 100)]));
+        level1.add_run(Run::new(vec![(2, 200)]));
+        assert!(leveled_policy.should_compact(&level1, 1));
         
         // Test legacy string-based creation
-        let _legacy_policy = CompactionFactory::create("tiered", 3).unwrap();
+        let _legacy_tiered_policy = CompactionFactory::create("tiered", 3).unwrap();
+        let _legacy_leveled_policy = CompactionFactory::create("leveled", 4).unwrap();
         
         // Test invalid policy name
         let result = CompactionFactory::create("invalid", 3);

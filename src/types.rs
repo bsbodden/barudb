@@ -14,7 +14,8 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub enum CompactionPolicyType {
     /// Tiered compaction policy - compacts all runs in a level when threshold is reached
     Tiered,
-    // Future policy types can be added here
+    /// Leveled compaction policy - maintains a single sorted run per level with size ratio threshold
+    Leveled,
 }
 
 impl CompactionPolicyType {
@@ -22,6 +23,7 @@ impl CompactionPolicyType {
     pub fn from_str(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "tiered" => Some(CompactionPolicyType::Tiered),
+            "leveled" => Some(CompactionPolicyType::Leveled),
             _ => None,
         }
     }
@@ -30,6 +32,7 @@ impl CompactionPolicyType {
     pub fn as_str(&self) -> &'static str {
         match self {
             CompactionPolicyType::Tiered => "tiered",
+            CompactionPolicyType::Leveled => "leveled",
         }
     }
 }
