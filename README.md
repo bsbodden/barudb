@@ -46,6 +46,21 @@ The workload tests simulate real-world database usage but can take a long time t
 cargo test test_workload_execution -- --ignored
 ```
 
+### Running Server Command Tests
+
+The server command tests verify functionality of server commands like PrintStats and Load:
+
+```bash
+# Ensure server is running on port 8080 first
+./run_server_tests.sh
+```
+
+This script will:
+1. Build the server if needed
+2. Start the server if not already running
+3. Run tests that verify PrintStats and Load command functionality
+4. Shut down the server (if it started it)
+
 ### Running Performance Tests
 
 Performance tests evaluate various aspects of the system but are excluded from regular test runs:
@@ -141,15 +156,24 @@ The database supports the following commands:
 
 ### Client Commands
 
-| Command           | Description          | Example        |
-|-------------------|----------------------|----------------|
-| `p <key> <value>` | Put a key-value pair | `p 10 42`      |
-| `g <key>`         | Get value for key    | `g 10`         |
-| `r <start> <end>` | Range query          | `r 10 20`      |
-| `d <key>`         | Delete key           | `d 10`         |
-| `l <filename>`    | Load from file       | `l "data.bin"` |
-| `s`               | Print stats          | `s`            |
-| `q`               | Quit                 | `q`            |
+| Command           | Description                                     | Example        |
+|-------------------|-------------------------------------------------|----------------|
+| `p <key> <value>` | Put a key-value pair                            | `p 10 42`      |
+| `g <key>`         | Get value for key                               | `g 10`         |
+| `r <start> <end>` | Range query                                     | `r 10 20`      |
+| `d <key>`         | Delete key                                      | `d 10`         |
+| `l <filename>`    | Load commands from file                         | `l "data.txt"` |
+| `s`               | Print stats (tree config, storage stats, etc.)  | `s`            |
+| `f`               | Force memtable flush to disk                    | `f`            |
+| `q`               | Quit                                            | `q`            |
+
+The `l` (Load) command processes a file containing multiple commands, with each command on a separate line. It supports `p` (Put) and `d` (Delete) commands in the file.
+
+The `s` (PrintStats) command displays comprehensive statistics about the LSM tree, including:
+- Storage type and compaction policy
+- Buffer size and fanout configuration
+- Total storage size and file count
+- Level-by-level statistics (runs, blocks, entries)
 
 ### Server Commands
 

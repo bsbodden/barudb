@@ -1,6 +1,6 @@
 use crate::level::Level;
 use crate::memtable::Memtable;
-use crate::run::{Run, RunStorage, StorageFactory, StorageOptions};
+use crate::run::{self, Run, RunStorage, StorageFactory, StorageOptions, StorageStats};
 use crate::types::{Key, Result, Value, TOMBSTONE, CompactionPolicyType, StorageType};
 use crate::compaction::{CompactionPolicy, CompactionFactory};
 use std::path::PathBuf;
@@ -320,6 +320,16 @@ impl LSMTree {
         }
         
         Ok(())
+    }
+    
+    /// Get storage statistics for the LSM tree
+    pub fn get_storage_stats(&self) -> Result<StorageStats> {
+        self.storage.get_stats().map_err(|e| {
+            match e {
+                run::Error::Io(io_err) => crate::types::Error::Io(io_err),
+                _ => crate::types::Error::Other(format!("Storage error: {:?}", e))
+            }
+        })
     }
 }
 

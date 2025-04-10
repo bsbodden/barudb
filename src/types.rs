@@ -111,6 +111,8 @@ pub enum Error {
     BufferFull,
     /// Error during compaction
     CompactionError,
+    /// Other errors with message
+    Other(String),
 }
 
 impl std::fmt::Display for Error {
@@ -121,6 +123,7 @@ impl std::fmt::Display for Error {
             Error::InvalidRange { start, end } => write!(f, "Invalid range: {} > {}", start, end),
             Error::BufferFull => write!(f, "Buffer is full"),
             Error::CompactionError => write!(f, "Error during compaction"),
+            Error::Other(msg) => write!(f, "{}", msg),
         }
     }
 }
