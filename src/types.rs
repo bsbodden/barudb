@@ -9,6 +9,43 @@ pub type Value = i64;
 /// Result type that uses our custom Error
 pub type Result<T> = std::result::Result<T, Error>;
 
+/// Compaction policy types
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CompactionPolicyType {
+    /// Tiered compaction policy - compacts all runs in a level when threshold is reached
+    Tiered,
+    // Future policy types can be added here
+}
+
+impl CompactionPolicyType {
+    /// Convert a string to a CompactionPolicyType
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "tiered" => Some(CompactionPolicyType::Tiered),
+            _ => None,
+        }
+    }
+    
+    /// Convert CompactionPolicyType to string
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            CompactionPolicyType::Tiered => "tiered",
+        }
+    }
+}
+
+impl ToString for CompactionPolicyType {
+    fn to_string(&self) -> String {
+        self.as_str().to_string()
+    }
+}
+
+impl Default for CompactionPolicyType {
+    fn default() -> Self {
+        CompactionPolicyType::Tiered
+    }
+}
+
 /// Custom error types for LSM tree operations
 #[derive(Debug)]
 pub enum Error {

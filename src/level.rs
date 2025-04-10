@@ -1,6 +1,7 @@
 use crate::run::Run;
 use crate::types::{Key, Value};
 
+#[derive(Clone)]
 pub struct Level {
     runs: Vec<Run>,
 }
@@ -13,6 +14,26 @@ impl Level {
     // Add a new run to this level
     pub fn add_run(&mut self, run: Run) {
         self.runs.push(run);
+    }
+
+    // Get the number of runs in this level
+    pub fn run_count(&self) -> usize {
+        self.runs.len()
+    }
+    
+    // Get a run by index
+    pub fn get_run(&self, index: usize) -> Run {
+        self.runs[index].clone()
+    }
+    
+    // Get reference to all runs in this level
+    pub fn get_runs(&self) -> &[Run] {
+        &self.runs
+    }
+    
+    // Remove a run by index
+    pub fn remove_run(&mut self, index: usize) -> Run {
+        self.runs.remove(index)
     }
 
     // Retrieve a value for a key by searching all runs

@@ -1,7 +1,8 @@
 use crate::level::Level;
 use crate::memtable::Memtable;
 use crate::run::{Run, RunStorage, StorageFactory, StorageOptions};
-use crate::types::{Key, Result, Value, TOMBSTONE};
+use crate::types::{Key, Result, Value, TOMBSTONE, CompactionPolicyType};
+use crate::compaction::{CompactionPolicy, CompactionFactory};
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
@@ -29,6 +30,13 @@ pub struct LSMConfig {
     /// Fanout/size ratio between levels (T)
     /// This is the ratio of sizes between adjacent levels in the LSM tree
     pub fanout: usize,
+    
+    /// Compaction policy to use (Tiered, Leveled, etc.)
+    pub compaction_policy: CompactionPolicyType,
+    
+    /// Threshold for triggering compaction (runs per level for tiered,
+    /// size ratio for leveled)
+    pub compaction_threshold: usize,
 }
 
 impl Default for LSMConfig {
@@ -41,6 +49,8 @@ impl Default for LSMConfig {
             max_open_files: 1000,
             sync_writes: true,
             fanout: 4, // Default fanout of 4 (each level is 4x larger than the previous)
+            compaction_policy: CompactionPolicyType::Tiered,
+            compaction_threshold: 4, // Default to compact after 4 runs in a level
         }
     }
 }
@@ -50,6 +60,7 @@ pub struct LSMTree {
     levels: Vec<Level>,
     storage: Arc<dyn RunStorage>,
     config: LSMConfig,
+    compaction_policy: Box<dyn CompactionPolicy>,
 }
 
 impl LSMTree {
@@ -75,11 +86,18 @@ impl LSMTree {
         let storage = StorageFactory::create(&config.storage_type, storage_options)
             .expect("Failed to create storage backend");
         
+        // Create compaction policy
+        let compaction_policy = CompactionFactory::create_from_type(
+            config.compaction_policy.clone(), 
+            config.compaction_threshold
+        ).expect("Failed to create compaction policy");
+        
         let mut tree = Self {
             buffer: Arc::new(RwLock::new(Memtable::new(config.buffer_size))),
             levels: Vec::new(),
             storage,
             config,
+            compaction_policy,
         };
         
         // Recover state from disk if available
@@ -164,6 +182,8 @@ impl LSMTree {
 
         if flush_required {
             self.flush_buffer_to_level0()?;
+            // Check if compaction is needed
+            self.compact_if_needed()?;
         }
         Ok(())
     }
@@ -241,6 +261,66 @@ impl LSMTree {
         
         Ok(())
     }
+    
+    /// Check all levels and perform compaction if needed according to policy
+    pub fn compact_if_needed(&mut self) -> Result<()> {
+        // Check each level for compaction needs
+        for level_num in 0..self.levels.len() {
+            if self.compaction_policy.should_compact(&self.levels[level_num], level_num) {
+                self.compact_level(level_num)?;
+            }
+        }
+        
+        Ok(())
+    }
+    
+    /// Perform a single compaction from one level to the next
+    pub fn compact_level(&mut self, level_num: usize) -> Result<()> {
+        // Ensure we have a level to compact into
+        let target_level_num = level_num + 1;
+        while self.levels.len() <= target_level_num {
+            self.levels.push(Level::new());
+        }
+        
+        // Clone source level to avoid borrow issues
+        let source_level = self.levels[level_num].clone();
+        
+        // Perform compaction
+        match self.compaction_policy.compact(
+            &source_level,
+            &mut self.levels[target_level_num],
+            &*self.storage,
+            level_num,
+            target_level_num,
+        ) {
+            Ok(_) => {
+                // Replace the old source level with a new empty level
+                self.levels[level_num] = Level::new();
+                
+                // Check if next level now needs compaction
+                if target_level_num < self.levels.len() &&
+                   self.compaction_policy.should_compact(&self.levels[target_level_num], target_level_num) {
+                    // Recursively compact next level
+                    self.compact_level(target_level_num)?;
+                }
+                
+                Ok(())
+            },
+            Err(e) => Err(e),
+        }
+    }
+    
+    /// Force compaction of all levels
+    pub fn force_compact_all(&mut self) -> Result<()> {
+        let level_count = self.levels.len();
+        for level_num in 0..level_count {
+            if level_num < self.levels.len() && !self.levels[level_num].get_runs().is_empty() {
+                self.compact_level(level_num)?;
+            }
+        }
+        
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -258,6 +338,8 @@ mod tests {
             max_open_files: 100,
             sync_writes: false,
             fanout: 4, // Default fanout value
+            compaction_policy: CompactionPolicyType::Tiered,
+            compaction_threshold: 4, // Default threshold value
         };
         (LSMTree::with_config(config), temp_dir)
     }
@@ -325,6 +407,8 @@ mod tests {
             max_open_files: 50,
             sync_writes: true,
             fanout: 4, // Default fanout value
+            compaction_policy: CompactionPolicyType::Tiered,
+            compaction_threshold: 4, // Default threshold value
         };
         
         // Create LSM tree with custom config
@@ -378,6 +462,8 @@ mod tests {
             max_open_files: 100,
             sync_writes: false,
             fanout: 4, // Default fanout value
+            compaction_policy: CompactionPolicyType::Tiered,
+            compaction_threshold: 4, // Default threshold value
         };
         
         // Create new tree - recovery should happen automatically
@@ -413,6 +499,8 @@ mod tests {
             max_open_files: 100,
             sync_writes: false,
             fanout: 4, // Default fanout value
+            compaction_policy: CompactionPolicyType::Tiered,
+            compaction_threshold: 4, // Default threshold value
         };
         
         let mut recovered_tree = LSMTree::with_config(config);

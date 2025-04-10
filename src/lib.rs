@@ -1,5 +1,6 @@
 pub mod command;
-mod level;
+pub mod compaction;
+pub mod level;
 pub mod lsm_tree;
 pub mod memtable;
 pub mod run;
