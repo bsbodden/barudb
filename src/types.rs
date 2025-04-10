@@ -16,6 +16,9 @@ pub enum CompactionPolicyType {
     Tiered,
     /// Leveled compaction policy - maintains a single sorted run per level with size ratio threshold
     Leveled,
+    /// Lazy Leveled compaction policy - hybrid approach that accumulates runs at level 0
+    /// like tiered compaction but maintains single run per level for other levels
+    LazyLeveled,
 }
 
 impl CompactionPolicyType {
@@ -24,6 +27,7 @@ impl CompactionPolicyType {
         match s.to_lowercase().as_str() {
             "tiered" => Some(CompactionPolicyType::Tiered),
             "leveled" => Some(CompactionPolicyType::Leveled),
+            "lazy_leveled" | "lazyleveled" => Some(CompactionPolicyType::LazyLeveled),
             _ => None,
         }
     }
@@ -33,6 +37,7 @@ impl CompactionPolicyType {
         match self {
             CompactionPolicyType::Tiered => "tiered",
             CompactionPolicyType::Leveled => "leveled",
+            CompactionPolicyType::LazyLeveled => "lazy_leveled",
         }
     }
 }

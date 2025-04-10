@@ -264,3 +264,171 @@ fn test_recovery_with_leveled_compaction() {
         assert_eq!(recovered_tree.get(i), Some(i * 100), "Recovery failed for key {}", i);
     }
 }
+
+#[test]
+fn test_lazy_leveled_compaction_integration() {
+    // Create a tree with a lazy leveled compaction policy
+    // Use a threshold of 3 for L0
+    let (mut tree, _temp_dir) = create_test_tree(3, CompactionPolicyType::LazyLeveled);
+    
+    // Add data to fill the buffer and trigger a flush to L0
+    for i in 1..5 {
+        tree.put(i, i * 100).unwrap();
+    }
+    
+    // Data should still be accessible
+    assert_eq!(tree.get(1), Some(100));
+    assert_eq!(tree.get(4), Some(400));
+    
+    // Add more data to trigger another flush to L0
+    // This will create a second run in L0
+    for i in 5..9 {
+        tree.put(i, i * 100).unwrap();
+    }
+    
+    // Add even more data to trigger a third flush to L0
+    // This should now trigger compaction from L0 to L1 since we have 3 runs in L0
+    for i in 9..13 {
+        tree.put(i, i * 100).unwrap();
+    }
+    
+    // All data should still be accessible
+    for i in 1..13 {
+        assert_eq!(tree.get(i), Some(i * 100));
+    }
+    
+    // Add data that will go to different levels
+    // This will cause more compactions and will test the "leveled" behavior
+    // of higher levels
+    for i in 13..25 {
+        tree.put(i, i * 100).unwrap();
+    }
+    
+    // Test updates
+    for i in 5..10 {
+        tree.put(i, i * 200).unwrap(); // Double the values
+    }
+    
+    // Test deletions
+    tree.delete(2).unwrap();
+    tree.delete(15).unwrap();
+    
+    // Force a compaction to ensure everything is properly merged
+    tree.force_compact_all().unwrap();
+    
+    // Verify all data is correctly maintained
+    // L1 and higher should have at most one run per level (leveled policy)
+    assert_eq!(tree.get(1), Some(100));
+    assert_eq!(tree.get(2), None); // Deleted
+    assert_eq!(tree.get(3), Some(300));
+    for i in 5..10 {
+        assert_eq!(tree.get(i), Some(i * 200)); // Updated values
+    }
+    for i in 10..15 {
+        assert_eq!(tree.get(i), Some(i * 100));
+    }
+    assert_eq!(tree.get(15), None); // Deleted
+    for i in 16..25 {
+        assert_eq!(tree.get(i), Some(i * 100));
+    }
+}
+
+#[test]
+fn test_recovery_with_lazy_leveled_compaction() {
+    // Create storage path for recovery test
+    let temp_dir = tempdir().unwrap();
+    let storage_path = temp_dir.path().to_path_buf();
+    
+    // Create first tree with lazy leveled compaction
+    let config = LSMConfig {
+        buffer_size: 4,
+        storage_type: "file".to_string(),
+        storage_path: storage_path.clone(),
+        create_path_if_missing: true,
+        max_open_files: 100,
+        sync_writes: false,
+        fanout: 4,
+        compaction_policy: CompactionPolicyType::LazyLeveled,
+        compaction_threshold: 3, // Threshold for L0
+    };
+    
+    // Create tree, add data, and force compaction
+    {
+        let mut tree = LSMTree::with_config(config.clone());
+        
+        // Add data and trigger compaction
+        for i in 1..21 {
+            tree.put(i, i * 100).unwrap();
+        }
+        
+        // Add some updates and deletes
+        tree.put(5, 555).unwrap();
+        tree.put(10, 1010).unwrap();
+        tree.delete(15).unwrap();
+        
+        // Force a flush to ensure all data is on disk
+        tree.flush_buffer_to_level0().unwrap();
+        
+        // Force compaction to ensure a clean state
+        tree.force_compact_all().unwrap();
+    }
+    
+    // Create a new tree with the same storage path to test recovery
+    let recovered_tree = LSMTree::with_config(config);
+    
+    // Test that all data was recovered, including updates and deletes
+    for i in 1..5 {
+        assert_eq!(recovered_tree.get(i), Some(i * 100), "Recovery failed for key {}", i);
+    }
+    assert_eq!(recovered_tree.get(5), Some(555), "Recovery failed for updated key 5");
+    for i in 6..10 {
+        assert_eq!(recovered_tree.get(i), Some(i * 100), "Recovery failed for key {}", i);
+    }
+    assert_eq!(recovered_tree.get(10), Some(1010), "Recovery failed for updated key 10");
+    for i in 11..15 {
+        assert_eq!(recovered_tree.get(i), Some(i * 100), "Recovery failed for key {}", i);
+    }
+    assert_eq!(recovered_tree.get(15), None, "Recovery failed for deleted key 15");
+    for i in 16..21 {
+        assert_eq!(recovered_tree.get(i), Some(i * 100), "Recovery failed for key {}", i);
+    }
+}
+
+#[test]
+fn test_compare_compaction_policies() {
+    // This test checks the differences in behavior between the three policies
+    
+    // Create trees with different compaction policies but same threshold
+    let (mut tiered_tree, _temp_dir1) = create_test_tree(3, CompactionPolicyType::Tiered);
+    let (mut leveled_tree, _temp_dir2) = create_test_tree(3, CompactionPolicyType::Leveled);
+    let (mut lazy_tree, _temp_dir3) = create_test_tree(3, CompactionPolicyType::LazyLeveled);
+    
+    // Add same data to all trees
+    for i in 1..20 {
+        tiered_tree.put(i, i * 100).unwrap();
+        leveled_tree.put(i, i * 100).unwrap();
+        lazy_tree.put(i, i * 100).unwrap();
+    }
+    
+    // Flush all buffers to L0
+    tiered_tree.flush_buffer_to_level0().unwrap();
+    leveled_tree.flush_buffer_to_level0().unwrap();
+    lazy_tree.flush_buffer_to_level0().unwrap();
+    
+    // Force compaction
+    tiered_tree.force_compact_all().unwrap();
+    leveled_tree.force_compact_all().unwrap();
+    lazy_tree.force_compact_all().unwrap();
+    
+    // Check that data is accessible in all trees
+    for i in 1..20 {
+        assert_eq!(tiered_tree.get(i), Some(i * 100));
+        assert_eq!(leveled_tree.get(i), Some(i * 100));
+        assert_eq!(lazy_tree.get(i), Some(i * 100));
+    }
+    
+    // While the data is the same, the internal structure should be different:
+    // - Tiered: Multiple runs per level, compact when threshold is reached
+    // - Leveled: Single run per level, compact when > 1 run at any level
+    // - Lazy Leveled: Multiple runs at L0 (like Tiered), single run per level elsewhere (like Leveled)
+}

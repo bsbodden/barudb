@@ -79,8 +79,9 @@ cargo run --release --bin server [OPTIONS]
 |---------------------|-----------|---------------------------------------------------------------------|
 | `-e <error_rate>`   | 0.01      | Bloom filter error rate                                             |
 | `-n <num_pages>`    | 1024      | Size of the buffer by number of disk pages                          |
-| `-f <fanout>`       | 2         | LSM tree fanout                                                     |
-| `-l <level_policy>` | "leveled" | Compaction policy (options: tiered, leveled, lazy_leveled, partial) |
+| `-f <fanout>`       | 4         | LSM tree fanout                                                     |
+| `-l <level_policy>` | "tiered"  | Compaction policy (options: tiered, leveled, lazy_leveled)          |
+| `-t <threshold>`    | 4         | Compaction threshold (runs for tiered/lazy_leveled)                 |
 | `-p <port>`         | 8080      | Port number                                                         |
 | `-h`                | N/A       | Print help message                                                  |
 
@@ -138,6 +139,11 @@ lsm-tree/
 │   │   ├── mod.rs       # Core Bloom filter code
 │   │   ├── rocks_db.rs  # RocksDB filter implementation
 │   │   └── speed_db.rs  # SpeedDB filter implementation
+│   ├── compaction/      # Compaction policy implementations
+│   │   ├── mod.rs       # Compaction framework & factory
+│   │   ├── tiered.rs    # Tiered compaction policy
+│   │   ├── leveled.rs   # Leveled compaction policy
+│   │   └── lazy_leveled.rs # Hybrid lazy leveled compaction
 │   ├── run/             # Run (data block) implementations
 │   │   ├── block.rs     # Block structure
 │   │   ├── compression.rs # Data compression
@@ -159,6 +165,10 @@ lsm-tree/
 │   └── types.rs         # Type definitions
 ├── benches/             # Performance benchmarks
 ├── tests/               # Integration tests
+│   ├── compaction_integration_test.rs # Tests for compaction policies
+│   ├── compaction_policy_test.rs     # Unit tests for compaction
+│   ├── lsm_tree_compaction_test.rs   # LSM tree with compaction
+│   └── ... other test files
 └── README.md
 ```
 
@@ -177,6 +187,11 @@ The implementation includes:
   - Prefix compression for maximized memory efficiency with numeric keys
   - FastLane memory layout for improved cache locality during lookups
 - Monkey-optimized Bloom filters for memory efficiency
+- Complete compaction framework with three policies:
+  - Tiered compaction: Multiple runs per level, compact when threshold reached
+  - Leveled compaction: Single run per level, compact on any new run
+  - Lazy Leveled compaction: Hybrid approach with tiered behavior at level 0
+- Pluggable component architecture for easy experimentation
 
 ## Monkey-Optimized Bloom Filters
 
@@ -206,6 +221,75 @@ The bit allocation formula follows an exponential decay: for a given level `i` a
 bits per entry = 32.0 / T^(i/2), with a minimum of 2 bits per entry.
 
 This approach demonstrates a memory reduction of ~94% from level 0 to level 4, while maintaining excellent false positive rates even in the lowest levels.
+
+## Compaction Policies
+
+The implementation provides three distinct compaction policies, each with different performance characteristics:
+
+### Tiered Compaction
+
+The tiered compaction policy allows multiple runs per level and triggers compaction when a level has accumulated a configured number of runs:
+
+```rust
+pub struct TieredCompactionPolicy {
+    /// Number of runs that trigger compaction
+    run_threshold: usize,
+}
+```
+
+**Characteristics**:
+- Lower write amplification (fewer rewrites during compaction)
+- Higher read amplification (must check multiple runs per level)
+- Good for write-heavy workloads
+- Configurable threshold for controlling when compaction occurs
+
+### Leveled Compaction
+
+The leveled compaction policy maintains exactly one run per level and triggers compaction whenever there would be more than one run at any level:
+
+```rust
+pub struct LeveledCompactionPolicy {
+    /// Size ratio threshold between levels (usually matches the fanout)
+    size_ratio_threshold: usize,
+}
+```
+
+**Characteristics**:
+- Higher write amplification (more rewrites during compaction)
+- Lower read amplification (at most one run per level)
+- Good for read-heavy workloads
+- More predictable query performance
+
+### Lazy Leveled Compaction
+
+A hybrid policy that combines tiered and leveled approaches:
+
+```rust
+pub struct LazyLeveledCompactionPolicy {
+    /// Threshold for number of runs in level 0 before compaction
+    run_threshold: usize,
+}
+```
+
+**Characteristics**:
+- Level 0: Behaves like tiered compaction (multiple runs allowed)
+- Higher levels: Behaves like leveled compaction (single run per level)
+- Balances read and write performance
+- Good for mixed workloads
+- Reduces write amplification while maintaining good read performance
+
+All policies are implemented as plugins that satisfy the `CompactionPolicy` trait, making it easy to switch between them or implement new strategies:
+
+```rust
+pub trait CompactionPolicy: Send + Sync {
+    fn should_compact(&self, level: &Level, level_num: usize) -> bool;
+    fn select_runs_to_compact(&self, level: &Level) -> Vec<usize>;
+    fn compact(...) -> Result<Run>;
+    fn box_clone(&self) -> Box<dyn CompactionPolicy>;
+}
+```
+
+The compaction policy can be selected when creating the LSM tree or through the command-line interface.
 
 ## Optimized Fence Pointers
 

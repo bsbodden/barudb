@@ -1,5 +1,6 @@
 mod tiered;
 mod leveled;
+mod lazy_leveled;
 
 use crate::level::Level;
 use crate::run::{Run, RunStorage};
@@ -7,6 +8,7 @@ use crate::types::{Result, CompactionPolicyType};
 
 pub use tiered::TieredCompactionPolicy;
 pub use leveled::LeveledCompactionPolicy;
+pub use lazy_leveled::LazyLeveledCompactionPolicy;
 
 /// Trait for compaction policy implementations
 pub trait CompactionPolicy: Send + Sync {
@@ -55,6 +57,7 @@ impl CompactionFactory {
         match policy_type {
             CompactionPolicyType::Tiered => Ok(Box::new(TieredCompactionPolicy::new(threshold))),
             CompactionPolicyType::Leveled => Ok(Box::new(LeveledCompactionPolicy::new(threshold))),
+            CompactionPolicyType::LazyLeveled => Ok(Box::new(LazyLeveledCompactionPolicy::new(threshold))),
         }
     }
     
@@ -87,15 +90,26 @@ mod tests {
         let leveled_policy = CompactionFactory::create_from_type(CompactionPolicyType::Leveled, 4).unwrap();
         assert!(leveled_policy.should_compact(&test_level, 0));
         
-        // Test creating level 1 with 2 runs (violates leveled invariant)
+        // Test creating lazy leveled policy using enum
+        let lazy_leveled_policy = CompactionFactory::create_from_type(CompactionPolicyType::LazyLeveled, 3).unwrap();
+        assert!(lazy_leveled_policy.should_compact(&test_level, 0));
+        
+        // Test level 1 behavior (level > 0)
         let mut level1 = Level::new();
         level1.add_run(Run::new(vec![(1, 100)]));
         level1.add_run(Run::new(vec![(2, 200)]));
+        
+        // All policies should compact level 1 when it has multiple runs
         assert!(leveled_policy.should_compact(&level1, 1));
+        assert!(lazy_leveled_policy.should_compact(&level1, 1));
+        
+        // But tiered would only compact if it reaches threshold
+        assert!(!tiered_policy.should_compact(&level1, 1));
         
         // Test legacy string-based creation
         let _legacy_tiered_policy = CompactionFactory::create("tiered", 3).unwrap();
         let _legacy_leveled_policy = CompactionFactory::create("leveled", 4).unwrap();
+        let _legacy_lazy_leveled_policy = CompactionFactory::create("lazy_leveled", 3).unwrap();
         
         // Test invalid policy name
         let result = CompactionFactory::create("invalid", 3);
