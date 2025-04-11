@@ -211,8 +211,13 @@ impl CompactionPolicy for PartialTieredCompactionPolicy {
         for run in &runs {
             if let Some(min_key) = run.min_key() {
                 if let Some(max_key) = run.max_key() {
-                    // Add all data from this run
-                    all_data.extend(run.range(min_key, max_key + 1));
+                    // Use storage-aware range method if run has ID
+                    if run.id.is_some() {
+                        all_data.extend(run.range_with_storage(min_key, max_key + 1, storage));
+                    } else {
+                        // Fall back to in-memory range method for runs without ID
+                        all_data.extend(run.range(min_key, max_key + 1));
+                    }
                 }
             }
         }

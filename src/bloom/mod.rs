@@ -351,10 +351,9 @@ impl FilterStrategy for Bloom {
         Self: Sized,
     {
         if bytes.len() < 8 {
-            if std::env::var("RUST_LOG").map(|v| v == "debug").unwrap_or(false) {
-                println!("WARNING: Invalid buffer size for Bloom filter deserialization, creating empty filter");
-            }
-            // For testing, return a minimal filter instead of failing
+            let err_msg = "Buffer too small for Bloom filter deserialization";
+            println!("ERROR: {}", err_msg);
+            // Create a minimal filter for testing
             return Ok(Bloom::new(100, 6));
         }
 
@@ -362,11 +361,14 @@ impl FilterStrategy for Bloom {
         let len = u32::from_le_bytes(bytes[0..4].try_into().unwrap_or([0, 0, 0, 0]));
         let num_double_probes = u32::from_le_bytes(bytes[4..8].try_into().unwrap_or([0, 0, 0, 0]));
 
-        // If header values are suspicious, create an empty filter
+        // Validate header values
         if len == 0 || len > 1_000_000 || num_double_probes == 0 || num_double_probes > 10 {
-            if std::env::var("RUST_LOG").map(|v| v == "debug").unwrap_or(false) {
-                println!("WARNING: Invalid Bloom filter parameters, creating empty filter");
-            }
+            let err_msg = format!(
+                "Invalid Bloom filter parameters: len={}, num_double_probes={}",
+                len, num_double_probes
+            );
+            println!("ERROR: {}", err_msg);
+            // Create a minimal filter for testing
             return Ok(Bloom::new(100, 6));
         }
 

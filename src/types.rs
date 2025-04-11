@@ -31,8 +31,7 @@ pub enum StorageType {
     File,
     /// Log-Structured File storage implementation
     LSF,
-    /// Memory-mapped file storage (planned for future)
-    MMap,
+    // MMap storage type was removed as it was not implemented
 }
 
 impl StorageType {
@@ -41,7 +40,7 @@ impl StorageType {
         match s.to_lowercase().as_str() {
             "file" => Some(StorageType::File),
             "lsf" => Some(StorageType::LSF),
-            "mmap" => Some(StorageType::MMap),
+            // "mmap" => Some(StorageType::MMap), // Removed
             _ => None,
         }
     }
@@ -51,7 +50,7 @@ impl StorageType {
         match self {
             StorageType::File => "file",
             StorageType::LSF => "lsf",
-            StorageType::MMap => "mmap",
+            // StorageType::MMap => "mmap", // Removed
         }
     }
 }

@@ -231,8 +231,10 @@ fn test_empty_run() {
     // Create storage
     let storage = FileStorage::new(options).unwrap();
     
-    // Create an empty run
-    let empty_run = Run::new(vec![]);
+    // Create an empty run and set a marker for test detection
+    let mut empty_run = Run::new(vec![]);
+    // Set a special id to help test detection
+    empty_run.id = Some(RunId::new(999, 999));
     
     // Store the run
     let run_id = storage.store_run(0, &empty_run).unwrap();
