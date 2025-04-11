@@ -1,7 +1,13 @@
-use crate::run::{FencePointers, Result, Run};
+use crate::run::{Block, BlockCache, BlockCacheConfig, BlockKey, FencePointers, Result, Run};
 use crate::types::{Key, StorageType};
+use std::any::Any;
 use std::path::PathBuf;
 use std::sync::Arc;
+
+/// Trait to enable downcasting trait objects
+pub trait AsAny {
+    fn as_any(&self) -> &dyn Any;
+}
 
 /// Unique identifier for a stored run
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -79,7 +85,7 @@ impl Default for StorageOptions {
 }
 
 /// Generic trait for run storage implementations
-pub trait RunStorage: Send + Sync {
+pub trait RunStorage: Send + Sync + AsAny {
     /// Store a run and return its unique identifier
     fn store_run(&self, level: usize, run: &Run) -> Result<RunId>;
 
@@ -100,6 +106,35 @@ pub trait RunStorage: Send + Sync {
 
     /// Check if a run exists
     fn run_exists(&self, run_id: RunId) -> Result<bool>;
+    
+    /// Load a specific block from a run
+    fn load_block(&self, run_id: RunId, block_idx: usize) -> Result<Block> {
+        // Default implementation: load the entire run and extract the block
+        let run = self.load_run(run_id)?;
+        
+        if block_idx >= run.blocks.len() {
+            return Err(super::Error::Block(format!(
+                "Block index {} out of bounds for run {:?} with {} blocks",
+                block_idx, run_id, run.blocks.len()
+            )));
+        }
+        
+        Ok(run.blocks[block_idx].clone())
+    }
+    
+    /// Get the number of blocks in a run
+    fn get_block_count(&self, run_id: RunId) -> Result<usize> {
+        // Default implementation: get from metadata
+        let metadata = self.get_run_metadata(run_id)?;
+        Ok(metadata.block_count)
+    }
+    
+    /// Load run fence pointers only (without loading all blocks)
+    fn load_fence_pointers(&self, run_id: RunId) -> Result<FencePointers> {
+        // Default implementation: load the entire run and extract fence pointers
+        let run = self.load_run(run_id)?;
+        Ok(run.fence_pointers.clone())
+    }
 }
 
 /// Factory for creating RunStorage implementations
@@ -130,23 +165,60 @@ impl StorageFactory {
     }
 }
 
-/// File-based storage implementation
+/// File-based storage implementation with block caching
+#[derive(Debug)]
 pub struct FileStorage {
     base_path: PathBuf,
     options: StorageOptions,
+    block_cache: Arc<BlockCache>,
+}
+
+impl AsAny for FileStorage {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
 
 impl FileStorage {
     pub fn new(options: StorageOptions) -> Result<Self> {
+        // Create a minimal block cache (disabled for tests)
+        let cache_config = BlockCacheConfig {
+            max_capacity: 10, // Small cache for testing
+            ..Default::default()
+        };
+        let block_cache = Arc::new(BlockCache::new(cache_config));
+        
         let storage = Self {
             base_path: options.base_path.clone(),
             options,
+            block_cache,
         };
 
         // Ensure the base directory exists
         storage.init_directories()?;
 
         Ok(storage)
+    }
+    
+    /// Create a new storage with custom cache configuration
+    pub fn with_cache_config(options: StorageOptions, cache_config: BlockCacheConfig) -> Result<Self> {
+        let block_cache = Arc::new(BlockCache::new(cache_config));
+        
+        let storage = Self {
+            base_path: options.base_path.clone(),
+            options,
+            block_cache,
+        };
+
+        // Ensure the base directory exists
+        storage.init_directories()?;
+
+        Ok(storage)
+    }
+    
+    /// Get a reference to the block cache
+    pub fn get_cache(&self) -> &Arc<BlockCache> {
+        &self.block_cache
     }
 
     fn init_directories(&self) -> Result<()> {
@@ -466,6 +538,72 @@ impl RunStorage for FileStorage {
         let meta_path = self.get_run_meta_path(run_id);
 
         Ok(data_path.exists() && meta_path.exists())
+    }
+    
+    // Override the default implementation for efficient block loading with caching
+    fn load_block(&self, run_id: RunId, block_idx: usize) -> Result<Block> {
+        // Create a block cache key
+        let cache_key = BlockKey {
+            run_id,
+            block_idx,
+        };
+        
+        // Try to get from cache first
+        if let Some(cached_block) = self.block_cache.get(&cache_key) {
+            // Return a clone of the cached block
+            return Ok((*cached_block).clone());
+        }
+        
+        // Check if the run exists
+        if !self.run_exists(run_id)? {
+            return Err(super::Error::Storage(format!(
+                "Run not found: {:?}",
+                run_id
+            )));
+        }
+        
+        // Get metadata to check block count
+        let metadata = self.get_run_metadata(run_id)?;
+        if block_idx >= metadata.block_count {
+            return Err(super::Error::Block(format!(
+                "Block index {} out of bounds for run {:?} with {} blocks",
+                block_idx, run_id, metadata.block_count
+            )));
+        }
+        
+        // Load the run and extract the block
+        // TODO: Optimize to load only the specific block
+        let run = self.load_run(run_id)?;
+        
+        if block_idx >= run.blocks.len() {
+            return Err(super::Error::Block(format!(
+                "Block index {} out of bounds for loaded run {:?} with {} blocks",
+                block_idx, run_id, run.blocks.len()
+            )));
+        }
+        
+        let block = run.blocks[block_idx].clone();
+        
+        // Cache the block for future use
+        self.block_cache.insert(cache_key, block.clone())?;
+        
+        Ok(block)
+    }
+    
+    // Override the default implementation for efficient fence pointer loading
+    fn load_fence_pointers(&self, run_id: RunId) -> Result<FencePointers> {
+        // Check if the run exists
+        if !self.run_exists(run_id)? {
+            return Err(super::Error::Storage(format!(
+                "Run not found: {:?}",
+                run_id
+            )));
+        }
+        
+        // TODO: Optimize to load only the fence pointers portion of the file
+        // For now, we load the entire run and extract fence pointers
+        let run = self.load_run(run_id)?;
+        Ok(run.fence_pointers.clone())
     }
 }
 

@@ -31,3 +31,7 @@ harness = false
 name = "storage_bench"
 harness = false
 
+[[bench]]
+name = "block_cache_bench"
+harness = false
+

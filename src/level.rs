@@ -1,4 +1,4 @@
-use crate::run::Run;
+use crate::run::{Run, RunStorage};
 use crate::types::{Key, Value};
 
 #[derive(Clone)]
@@ -36,7 +36,7 @@ impl Level {
         self.runs.remove(index)
     }
 
-    // Retrieve a value for a key by searching all runs
+    // Retrieve a value for a key by searching all runs (in-memory only)
     pub fn get(&self, key: Key) -> Option<Value> {
         for run in &self.runs {
             if let Some(value) = run.get(key) {
@@ -45,12 +45,31 @@ impl Level {
         }
         None
     }
+    
+    // Retrieve a value for a key by searching all runs with storage support
+    pub fn get_with_storage(&self, key: Key, storage: &dyn RunStorage) -> Option<Value> {
+        for run in &self.runs {
+            if let Some(value) = run.get_with_storage(key, storage) {
+                return Some(value);
+            }
+        }
+        None
+    }
 
-    // Retrieve all key-value pairs in the specified range
+    // Retrieve all key-value pairs in the specified range (in-memory only)
     pub fn range(&self, start: Key, end: Key) -> Vec<(Key, Value)> {
         let mut results = Vec::new();
         for run in &self.runs {
             results.extend(run.range(start, end));
+        }
+        results
+    }
+    
+    // Retrieve all key-value pairs in the specified range with storage support
+    pub fn range_with_storage(&self, start: Key, end: Key, storage: &dyn RunStorage) -> Vec<(Key, Value)> {
+        let mut results = Vec::new();
+        for run in &self.runs {
+            results.extend(run.range_with_storage(start, end, storage));
         }
         results
     }

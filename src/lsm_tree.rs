@@ -188,6 +188,7 @@ impl LSMTree {
         Ok(())
     }
 
+    /// Get a value by key using in-memory blocks only
     pub fn get(&self, key: Key) -> Option<Value> {
         // Check buffer first
         if let Some(value) = self.buffer.read().unwrap().get(&key) {
@@ -209,13 +210,58 @@ impl LSMTree {
 
         None
     }
+    
+    /// Get a value by key with block cache support
+    /// This version can use block-level caching for better performance
+    pub fn get_with_cache(&self, key: Key) -> Option<Value> {
+        // Check buffer first
+        if let Some(value) = self.buffer.read().unwrap().get(&key) {
+            if value == TOMBSTONE {
+                return None; // Ignore tombstone values
+            }
+            return Some(value);
+        }
 
+        // Check levels
+        for level in &self.levels {
+            if let Some(value) = level.get_with_storage(key, &*self.storage) {
+                if value == TOMBSTONE {
+                    return None; // Ignore tombstone values
+                }
+                return Some(value);
+            }
+        }
+
+        None
+    }
+
+    /// Range query using in-memory blocks only
     pub fn range(&self, start: Key, end: Key) -> Vec<(Key, Value)> {
         let mut results = self.buffer.read().unwrap().range(start, end);
 
         // Add results from levels
         for level in &self.levels {
             results.extend(level.range(start, end));
+        }
+
+        // Sort by key and remove duplicates, keeping only the most recent value
+        results.sort_by_key(|&(key, _)| key);
+        results.dedup_by_key(|&mut (key, _)| key);
+
+        // Filter out tombstones
+        results.retain(|&(_, value)| value != TOMBSTONE);
+
+        results
+    }
+    
+    /// Range query with block cache support
+    /// This version can use block-level caching for better performance
+    pub fn range_with_cache(&self, start: Key, end: Key) -> Vec<(Key, Value)> {
+        let mut results = self.buffer.read().unwrap().range(start, end);
+
+        // Add results from levels with storage support
+        for level in &self.levels {
+            results.extend(level.range_with_storage(start, end, &*self.storage));
         }
 
         // Sort by key and remove duplicates, keeping only the most recent value
@@ -330,6 +376,15 @@ impl LSMTree {
                 _ => crate::types::Error::Other(format!("Storage error: {:?}", e))
             }
         })
+    }
+    
+    /// Get block cache statistics if the storage implementation supports caching
+    pub fn get_cache_stats(&self) -> Option<run::CacheStats> {
+        if let Some(file_storage) = self.storage.as_any().downcast_ref::<run::FileStorage>() {
+            Some(file_storage.get_cache().get_stats())
+        } else {
+            None
+        }
     }
 }
 

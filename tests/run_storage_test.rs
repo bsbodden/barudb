@@ -1,7 +1,9 @@
 use lsm_tree::run::{
-    Error, FileStorage, Run, RunId, RunStorage, StorageFactory, StorageOptions
+    BlockCacheConfig, Error, FileStorage, Run, RunId, RunStorage, 
+    StorageFactory, StorageOptions
 };
 use lsm_tree::types::{Key, StorageType};
+use std::time::Duration;
 use tempfile::tempdir;
 
 #[test]
@@ -413,4 +415,53 @@ fn test_create_if_missing_false() {
     } else {
         panic!("Expected Storage error");
     }
+}
+
+#[test]
+fn test_block_cache() {
+    // Create a temporary directory for the test
+    let temp_dir = tempdir().unwrap();
+    
+    // Create custom cache config for testing
+    let cache_config = BlockCacheConfig {
+        max_capacity: 10,
+        ttl: Duration::from_secs(10),
+        cleanup_interval: Duration::from_secs(1),
+    };
+    
+    let options = StorageOptions {
+        base_path: temp_dir.path().to_path_buf(),
+        create_if_missing: true,
+        max_open_files: 100,
+        sync_writes: false,
+    };
+    
+    // Create storage with custom cache
+    let storage = FileStorage::with_cache_config(options, cache_config).unwrap();
+    
+    // Create and store a run
+    let run = Run::new(vec![(1, 100), (2, 200), (3, 300)]);
+    let run_id = storage.store_run(0, &run).unwrap();
+    
+    // Load a block (which should cache it)
+    let block1 = storage.load_block(run_id, 0).unwrap();
+    
+    // Verify we can get the value from the block
+    assert_eq!(block1.get(&1), Some(100));
+    
+    // Get cache stats - should show 1 miss and 0 hits since this was the first load
+    let stats = storage.get_cache().get_stats();
+    assert_eq!(stats.misses, 1);
+    assert_eq!(stats.hits, 0);
+    
+    // Load the same block again - should be cached now
+    let block2 = storage.load_block(run_id, 0).unwrap();
+    
+    // Verify we got the same data
+    assert_eq!(block2.get(&1), Some(100));
+    
+    // Get cache stats - should show 1 miss and 1 hit now
+    let stats = storage.get_cache().get_stats();
+    assert_eq!(stats.misses, 1);
+    assert_eq!(stats.hits, 1);
 }

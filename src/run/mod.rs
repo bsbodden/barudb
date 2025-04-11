@@ -1,4 +1,5 @@
 mod block;
+mod block_cache;
 mod compression;
 mod compressed_fence;
 mod fastlane_fence;
@@ -14,6 +15,7 @@ use std::io;
 
 use crate::bloom::{Bloom, create_bloom_for_level};
 pub use block::{Block, BlockConfig};
+pub use block_cache::{BlockCache, BlockCacheConfig, BlockKey, CacheStats};
 pub use compression::{CompressionStrategy, NoopCompression};
 pub use compressed_fence::{
     CompressedFencePointers, AdaptivePrefixFencePointers, PrefixGroup
@@ -260,6 +262,121 @@ impl Run {
             for block in &self.blocks {
                 if block.header.min_key <= end && block.header.max_key >= start {
                     results.extend(block.range(start, end));
+                }
+            }
+        }
+
+        results
+    }
+    
+    /// Get a value for key, with ability to lazy-load blocks from storage
+    pub fn get_with_storage(&self, key: Key, storage: &dyn RunStorage) -> Option<Value> {
+        // First check filter
+        if !self.filter.may_contain(&key) {
+            return None;
+        }
+        
+        // Check if we have a run ID (needed for storage)
+        let run_id = match self.id {
+            Some(id) => id,
+            None => {
+                // Use in-memory blocks only if no run ID is available
+                return self.get(key);
+            }
+        };
+
+        // Use fence pointers to find candidate blocks efficiently
+        if !self.fence_pointers.is_empty() {
+            if let Some(block_idx) = self.fence_pointers.find_block_for_key(key) {
+                // Try in-memory blocks first
+                if block_idx < self.blocks.len() {
+                    if let Some(value) = self.blocks[block_idx].get(&key) {
+                        return Some(value);
+                    }
+                } else {
+                    // Load block from storage
+                    match storage.load_block(run_id, block_idx) {
+                        Ok(block) => {
+                            if let Some(value) = block.get(&key) {
+                                return Some(value);
+                            }
+                        },
+                        Err(_) => {
+                            // Error loading block, try the next one if any
+                        }
+                    }
+                }
+            }
+        } else {
+            // Fall back to checking all blocks
+            // First check in-memory blocks
+            for block in &self.blocks {
+                if let Some(value) = block.get(&key) {
+                    return Some(value);
+                }
+            }
+            
+            // Then try loading from storage if needed
+            // Get block count from metadata
+            if let Ok(block_count) = storage.get_block_count(run_id) {
+                for block_idx in self.blocks.len()..block_count {
+                    if let Ok(block) = storage.load_block(run_id, block_idx) {
+                        if let Some(value) = block.get(&key) {
+                            return Some(value);
+                        }
+                    }
+                }
+            }
+        }
+
+        None
+    }
+    
+    /// Range query with ability to lazy-load blocks from storage
+    pub fn range_with_storage(&self, start: Key, end: Key, storage: &dyn RunStorage) -> Vec<(Key, Value)> {
+        let mut results = Vec::new();
+        
+        // Check if we have a run ID (needed for storage)
+        let run_id = match self.id {
+            Some(id) => id,
+            None => {
+                // Use in-memory blocks only if no run ID is available
+                return self.range(start, end);
+            }
+        };
+
+        // Use fence pointers to find candidate blocks efficiently
+        if !self.fence_pointers.is_empty() {
+            let candidate_blocks = self.fence_pointers.find_blocks_in_range(start, end);
+            
+            for block_idx in candidate_blocks {
+                // First try in-memory blocks
+                if block_idx < self.blocks.len() {
+                    results.extend(self.blocks[block_idx].range(start, end));
+                } else {
+                    // Load block from storage
+                    if let Ok(block) = storage.load_block(run_id, block_idx) {
+                        results.extend(block.range(start, end));
+                    }
+                }
+            }
+        } else {
+            // Fall back to checking all blocks
+            // First check in-memory blocks
+            for block in &self.blocks {
+                if block.header.min_key <= end && block.header.max_key >= start {
+                    results.extend(block.range(start, end));
+                }
+            }
+            
+            // Then try loading from storage if needed
+            if let Ok(block_count) = storage.get_block_count(run_id) {
+                for block_idx in self.blocks.len()..block_count {
+                    if let Ok(block) = storage.load_block(run_id, block_idx) {
+                        if block.header.min_key <= end && block.header.max_key >= start {
+                            results.extend(block.range(start, end));
+                        }
+                    }
                 }
             }
         }

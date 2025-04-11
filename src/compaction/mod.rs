@@ -1,6 +1,7 @@
 mod tiered;
 mod leveled;
 mod lazy_leveled;
+mod partial_tiered;
 
 use crate::level::Level;
 use crate::run::{Run, RunStorage};
@@ -9,6 +10,7 @@ use crate::types::{Result, CompactionPolicyType};
 pub use tiered::TieredCompactionPolicy;
 pub use leveled::LeveledCompactionPolicy;
 pub use lazy_leveled::LazyLeveledCompactionPolicy;
+pub use partial_tiered::{PartialTieredCompactionPolicy, SelectionStrategy};
 
 /// Trait for compaction policy implementations
 pub trait CompactionPolicy: Send + Sync {
@@ -58,6 +60,7 @@ impl CompactionFactory {
             CompactionPolicyType::Tiered => Ok(Box::new(TieredCompactionPolicy::new(threshold))),
             CompactionPolicyType::Leveled => Ok(Box::new(LeveledCompactionPolicy::new(threshold))),
             CompactionPolicyType::LazyLeveled => Ok(Box::new(LazyLeveledCompactionPolicy::new(threshold))),
+            CompactionPolicyType::PartialTiered => Ok(Box::new(PartialTieredCompactionPolicy::with_defaults(threshold))),
         }
     }
     
@@ -67,6 +70,19 @@ impl CompactionFactory {
             Some(policy_type) => Self::create_from_type(policy_type, threshold),
             None => Err(crate::types::Error::CompactionError),
         }
+    }
+    
+    /// Create a new partial tiered compaction policy with custom parameters
+    pub fn create_partial_tiered(
+        threshold: usize,
+        max_runs_per_compaction: usize,
+        selection_strategy: SelectionStrategy
+    ) -> Box<dyn CompactionPolicy> {
+        Box::new(PartialTieredCompactionPolicy::new(
+            threshold,
+            max_runs_per_compaction,
+            selection_strategy
+        ))
     }
 }
 

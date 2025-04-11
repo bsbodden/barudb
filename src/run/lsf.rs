@@ -1,6 +1,8 @@
 use crate::run::{
     Error, FencePointers, Result, Run, RunId, RunMetadata, RunStorage, StorageOptions, StorageStats
 };
+use crate::run::storage::AsAny;
+use std::any::Any;
 use crate::types::Key;
 use std::collections::HashMap;
 use std::fs::{self, File, OpenOptions};
@@ -175,6 +177,7 @@ struct IndexEntry {
 }
 
 /// Log-Structured File storage for LSM tree runs
+#[derive(Debug)]
 pub struct LSFStorage {
     /// Base directory for storage
     base_path: PathBuf,
@@ -196,6 +199,12 @@ pub struct LSFStorage {
     
     /// Next sequence numbers for each level
     next_sequence: RwLock<HashMap<usize, u64>>,
+}
+
+impl AsAny for LSFStorage {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
 
 impl LSFStorage {

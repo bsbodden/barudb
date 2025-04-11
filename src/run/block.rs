@@ -94,31 +94,11 @@ impl Block {
             return None;
         }
 
-        // Debug output for key lookup
-        println!("Block get - key: {}, entries: {}, min_key: {}, max_key: {}", 
-                key, self.entries.len(), self.header.min_key, self.header.max_key);
-        
-        // Linear search for debugging
-        for (k, v) in &self.entries {
-            if k == key {
-                println!("Found key {} with value {} (linear search)", key, v);
-                return Some(*v);
-            }
-        }
-        
-        // Try binary search
-        let result = self.entries
+        // Use binary search since entries are sorted
+        self.entries
             .binary_search_by_key(key, |(k, _)| *k)
             .ok()
-            .map(|idx| self.entries[idx].1);
-            
-        if result.is_some() {
-            println!("Found key {} with value {} (binary search)", key, result.unwrap());
-        } else {
-            println!("Key {} not found in block", key);
-        }
-        
-        result
+            .map(|idx| self.entries[idx].1)
     }
 
     pub fn range(&self, start: Key, end: Key) -> Vec<(Key, Value)> {

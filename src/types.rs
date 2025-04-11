@@ -19,6 +19,9 @@ pub enum CompactionPolicyType {
     /// Lazy Leveled compaction policy - hybrid approach that accumulates runs at level 0
     /// like tiered compaction but maintains single run per level for other levels
     LazyLeveled,
+    /// Partial Tiered compaction policy - compacts a subset of runs in a level when threshold is reached
+    /// This reduces I/O costs for large levels compared to standard tiered compaction
+    PartialTiered,
 }
 
 /// Storage backend types
@@ -72,6 +75,7 @@ impl CompactionPolicyType {
             "tiered" => Some(CompactionPolicyType::Tiered),
             "leveled" => Some(CompactionPolicyType::Leveled),
             "lazy_leveled" | "lazyleveled" => Some(CompactionPolicyType::LazyLeveled),
+            "partial_tiered" | "partialtiered" => Some(CompactionPolicyType::PartialTiered),
             _ => None,
         }
     }
@@ -82,6 +86,7 @@ impl CompactionPolicyType {
             CompactionPolicyType::Tiered => "tiered",
             CompactionPolicyType::Leveled => "leveled",
             CompactionPolicyType::LazyLeveled => "lazy_leveled",
+            CompactionPolicyType::PartialTiered => "partial_tiered",
         }
     }
 }

@@ -296,6 +296,7 @@ fn main() -> io::Result<()> {
                         "tiered" => CompactionPolicyType::Tiered,
                         "leveled" => CompactionPolicyType::Leveled,
                         "lazy_leveled" => CompactionPolicyType::LazyLeveled,
+                        "partial_tiered" => CompactionPolicyType::PartialTiered,
                         _ => {
                             eprintln!("Unknown compaction policy '{}', defaulting to tiered", args[i + 1]);
                             CompactionPolicyType::Tiered
