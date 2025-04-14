@@ -3,6 +3,7 @@ use crate::types::Key;
 use std::cmp::{max, min};
 
 /// The number of elements to prefetch ahead during binary search
+#[cfg_attr(not(target_arch = "x86_64"), allow(dead_code))]
 const PREFETCH_DISTANCE: usize = 8;
 
 /// Memory-optimized layout for fence pointers using the FastLanes approach
