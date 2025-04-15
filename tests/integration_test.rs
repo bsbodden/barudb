@@ -85,9 +85,17 @@ async fn start_server() -> TestServer {
         
     println!("Server binary path: {:?}", server_path);
 
-    let mut process = Command::new(&server_path)
-        .env("SERVER_PORT", port.to_string())
-        .spawn()
+    // Build command, preserving any existing DATA_DIR env var
+    let mut cmd = Command::new(&server_path);
+    cmd.env("SERVER_PORT", port.to_string());
+    
+    // Pass through DATA_DIR if it's set
+    if let Ok(data_dir) = std::env::var("DATA_DIR") {
+        println!("Using DATA_DIR: {}", data_dir);
+        cmd.env("DATA_DIR", data_dir);
+    }
+    
+    let mut process = cmd.spawn()
         .expect("Failed to start server process");
 
     // Wait for server to be ready
@@ -125,9 +133,17 @@ async fn start_server() -> TestServer {
     
     println!("Retrying with port {}", port);
     
-    let mut process = Command::new(&server_path)
-        .env("SERVER_PORT", port.to_string())
-        .spawn()
+    // Build command, preserving any existing DATA_DIR env var
+    let mut cmd = Command::new(&server_path);
+    cmd.env("SERVER_PORT", port.to_string());
+    
+    // Pass through DATA_DIR if it's set
+    if let Ok(data_dir) = std::env::var("DATA_DIR") {
+        println!("Using DATA_DIR: {}", data_dir);
+        cmd.env("DATA_DIR", data_dir);
+    }
+    
+    let mut process = cmd.spawn()
         .expect("Failed to start server process");
         
     // Wait for server to be ready
@@ -150,8 +166,8 @@ async fn start_server() -> TestServer {
 async fn send_command(port: u16, cmd: &str) -> String {
     println!("Sending command to server: {}", cmd.trim());
     
-    // Add retry logic for connection
-    let mut retry_count = 10;
+    // Add retry logic for connection with more attempts and longer timeout
+    let mut retry_count = 20; // Increased from 10
     let mut stream = None;
     
     while retry_count > 0 {
@@ -240,7 +256,6 @@ async fn test_range_query() {
 }
 
 #[tokio::test]
-#[ignore] // Ignoring the original test which is flaky
 async fn test_recovery_from_restart_original() {
     build_server();  // Ensure server is built before test
     
@@ -251,47 +266,13 @@ async fn test_recovery_from_restart_original() {
         .unwrap()
         .as_nanos());
     
-    // Create and configure first server with specific data directory
-    let server1 = {
-        // Use relative path from the current working directory
-        let server_path = std::env::current_dir()
-            .expect("Failed to get current directory")
-            .join("target")
-            .join("release")
-            .join("server");
-            
-        println!("Server binary path: {:?}", server_path);
+    // Use the more robust start_server utility instead of manual process creation
+    println!("Setting DATA_DIR environment variable to {}", &test_dir);
+    std::env::set_var("DATA_DIR", &test_dir);
     
-        // Find an available port
-        let mut port = NEXT_PORT.lock().unwrap().clone();
-        while TcpListener::bind(format!("127.0.0.1:{}", port)).is_err() {
-            port += 1;
-        }
-        *NEXT_PORT.lock().unwrap() = port + 1;
-        
-        println!("Starting first server on port {}", port);
-        
-        let process = Command::new(&server_path)
-            .env("SERVER_PORT", port.to_string())
-            .env("DATA_DIR", &test_dir) // Set specific data directory
-            .spawn()
-            .expect("Failed to start server process");
-            
-        // Wait for server to be ready with more patience
-        let mut attempts = 300;  // 30 seconds total
-        while attempts > 0 {
-            if let Ok(_) = TcpStream::connect(format!("127.0.0.1:{}", port)).await {
-                // Add extra sleep to ensure server is fully initialized
-                tokio::time::sleep(Duration::from_millis(1000)).await;
-                println!("Successfully connected to test server on port {}", port);
-                break;
-            }
-            attempts -= 1;
-            tokio::time::sleep(Duration::from_millis(100)).await;
-        }
-        
-        TestServer { port, process }
-    };
+    // Create first server
+    let server1 = start_server().await;
+    println!("First server started successfully on port {}", server1.port);
     
     // Insert data and force a flush to disk
     let response = send_command(server1.port, "p 100 1000\n").await;
@@ -311,51 +292,19 @@ async fn test_recovery_from_restart_original() {
     let response = send_command(server1.port, "g 100\n").await;
     assert_eq!(response, "1000", "Get failed before restart");
     
-    // Shut down first server
-    let _ = send_command(server1.port, "q\n").await;
-    tokio::time::sleep(Duration::from_secs(1)).await; // Allow shutdown
+    // Explicitly drop the server to ensure clean shutdown
+    println!("Shutting down first server...");
+    drop(server1);
+    
+    // Wait for the server to fully shut down and release resources
+    println!("Waiting for server to fully shut down...");
+    tokio::time::sleep(Duration::from_secs(2)).await;
     
     // Start a second server with the same data directory
-    let server2 = {
-        // Use relative path from the current working directory
-        let server_path = std::env::current_dir()
-            .expect("Failed to get current directory")
-            .join("target")
-            .join("release")
-            .join("server");
-            
-        println!("Server binary path: {:?}", server_path);
-    
-        // Find an available port
-        let mut port = NEXT_PORT.lock().unwrap().clone();
-        while TcpListener::bind(format!("127.0.0.1:{}", port)).is_err() {
-            port += 1;
-        }
-        *NEXT_PORT.lock().unwrap() = port + 1;
-        
-        println!("Starting second server on port {}", port);
-        
-        let process = Command::new(&server_path)
-            .env("SERVER_PORT", port.to_string())
-            .env("DATA_DIR", &test_dir) // Use same data directory as before
-            .spawn()
-            .expect("Failed to start server process");
-            
-        // Wait for server to be ready with more patience
-        let mut attempts = 300;  // 30 seconds total
-        while attempts > 0 {
-            if let Ok(_) = TcpStream::connect(format!("127.0.0.1:{}", port)).await {
-                // Add extra sleep to ensure server is fully initialized
-                tokio::time::sleep(Duration::from_millis(1000)).await;
-                println!("Successfully connected to test server on port {}", port);
-                break;
-            }
-            attempts -= 1;
-            tokio::time::sleep(Duration::from_millis(100)).await;
-        }
-        
-        TestServer { port, process }
-    };
+    // Environment variable DATA_DIR is already set
+    println!("Starting second server...");
+    let server2 = start_server().await;
+    println!("Second server started successfully on port {}", server2.port);
     
     // Check if data is recovered after restart
     let response = send_command(server2.port, "g 100\n").await;
@@ -383,8 +332,19 @@ async fn test_recovery_from_restart_original() {
 async fn test_recovery_simplified() {
     build_server();  // Ensure server is built before test
     
+    // Create a unique subdirectory for this test to isolate the data
+    let test_dir = format!("test_recovery_simple_{}", std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos());
+    
+    // Set environment variable for data directory
+    println!("Setting DATA_DIR environment variable to {}", &test_dir);
+    std::env::set_var("DATA_DIR", &test_dir);
+    
     // Create a server
     let server = start_server().await;
+    println!("First server started successfully on port {}", server.port);
     
     // Add data
     let response = send_command(server.port, "p 100 1000\n").await;
@@ -397,16 +357,24 @@ async fn test_recovery_simplified() {
     let response = send_command(server.port, "f\n").await;
     assert!(response.contains("OK"), "Flush failed");
     
-    // Shutdown
+    // Explicitly drop the server to ensure clean shutdown
+    println!("Shutting down first server...");
     drop(server);
     
-    // Wait for full shutdown
-    tokio::time::sleep(Duration::from_secs(1)).await;
+    // Wait longer for the server to fully shut down
+    println!("Waiting for server to fully shut down...");
+    tokio::time::sleep(Duration::from_secs(2)).await;
     
-    // Start new server
+    // Start new server - DATA_DIR environment variable should still be set
+    println!("Starting second server...");
     let new_server = start_server().await;
+    println!("Second server started successfully on port {}", new_server.port);
     
     // Verify recovery
     let response = send_command(new_server.port, "g 100\n").await;
     assert!(response.contains("1000"), "Data not recovered after restart");
+    
+    // Also check the second value to be sure
+    let response = send_command(new_server.port, "g 200\n").await;
+    assert!(response.contains("2000"), "Data not fully recovered after restart");
 }

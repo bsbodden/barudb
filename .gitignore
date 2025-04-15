@@ -7,3 +7,4 @@ generator/workload.txt
 .DS_Store
 data/**/*.bin
 data/**/*.meta
+test_recovery*/**/*

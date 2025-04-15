@@ -180,6 +180,28 @@ impl BlockCache {
         
         Ok(())
     }
+    
+    /// Invalidate all blocks for a specific run (used during compaction)
+    pub fn invalidate_run(&self, run_id: RunId) -> Result<()> {
+        let mut entries = self.entries.write().unwrap();
+        let mut lru = self.lru_queue.lock().unwrap();
+        
+        // Find all block keys associated with this run
+        let keys_to_remove: Vec<BlockKey> = entries.keys()
+            .filter(|k| k.run_id == run_id)
+            .copied()
+            .collect();
+        
+        // Remove from entries
+        for key in &keys_to_remove {
+            entries.remove(key);
+        }
+        
+        // Remove from LRU queue
+        lru.retain(|k| k.run_id != run_id);
+        
+        Ok(())
+    }
 
     /// Clear all entries from the cache
     pub fn clear(&self) -> Result<()> {

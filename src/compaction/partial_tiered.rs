@@ -1,6 +1,6 @@
 use crate::compaction::CompactionPolicy;
 use crate::level::Level;
-use crate::run::{Run, RunStorage};
+use crate::run::{self, Run, RunStorage};
 use crate::types::{Result, Error, Key};
 
 /// Partial Tiered compaction policy merges a subset of runs in a level when the level has
@@ -214,6 +214,14 @@ impl CompactionPolicy for PartialTieredCompactionPolicy {
                 if let Some(max_key) = run.max_key() {
                     // Use storage-aware range method if run has ID
                     if run.id.is_some() {
+                        // Clear any block cache entries for this run before reading
+                        // to ensure we get the latest data
+                        if let Some(run_id) = run.id {
+                            // Use any downcast available to invalidate cache
+                            if let Some(file_storage) = storage.as_any().downcast_ref::<run::FileStorage>() {
+                                let _ = file_storage.get_cache().invalidate_run(run_id);
+                            }
+                        }
                         all_data.extend(run.range_with_storage(min_key, max_key + 1, storage));
                     } else {
                         // Fall back to in-memory range method for runs without ID
@@ -243,6 +251,11 @@ impl CompactionPolicy for PartialTieredCompactionPolicy {
             if let Some(id) = run.id {
                 // Ignore errors during cleanup
                 let _ = storage.delete_run(id);
+                
+                // Also invalidate any cache entries for this run since it's being deleted
+                if let Some(file_storage) = storage.as_any().downcast_ref::<run::FileStorage>() {
+                    let _ = file_storage.get_cache().invalidate_run(id);
+                }
             }
         }
         
