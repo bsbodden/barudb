@@ -13,6 +13,8 @@ pub use lazy_leveled::LazyLeveledCompactionPolicy;
 pub use partial_tiered::{PartialTieredCompactionPolicy, SelectionStrategy};
 
 /// Trait for compaction policy implementations
+use crate::lsm_tree::LSMConfig;
+
 pub trait CompactionPolicy: Send + Sync {
     /// Checks if a level should be compacted based on policy-specific criteria
     fn should_compact(&self, level: &Level, level_num: usize) -> bool;
@@ -28,6 +30,7 @@ pub trait CompactionPolicy: Send + Sync {
     /// * `storage` - Storage implementation for reading/writing runs
     /// * `source_level_num` - Level number of the source level
     /// * `target_level_num` - Level number of the target level
+    /// * `config` - Optional LSM tree configuration
     /// 
     /// # Returns
     /// * `Result<Run>` - The newly created run in the target level
@@ -38,6 +41,7 @@ pub trait CompactionPolicy: Send + Sync {
         storage: &dyn RunStorage,
         source_level_num: usize,
         target_level_num: usize,
+        config: Option<&LSMConfig>,
     ) -> Result<Run>;
     
     /// Creates a clone of this policy

@@ -62,6 +62,7 @@ impl CompactionPolicy for LeveledCompactionPolicy {
         storage: &dyn RunStorage,
         _source_level_num: usize,
         target_level_num: usize,
+        config: Option<&crate::lsm_tree::LSMConfig>,
     ) -> Result<Run> {
         // Select all runs from the source level
         let run_indices = self.select_runs_to_compact(source_level);
@@ -109,8 +110,8 @@ impl CompactionPolicy for LeveledCompactionPolicy {
         all_data.dedup_by_key(|&mut (key, _)| key);
         
         // Create a new run with the merged data, optimized for the target level
-        let fanout = self.size_ratio_threshold as f64;
-        let mut merged_run = Run::new_for_level(all_data, target_level_num, fanout);
+        let fanout = config.map(|c| c.fanout as f64).unwrap_or(self.size_ratio_threshold as f64);
+        let mut merged_run = Run::new_for_level(all_data, target_level_num, fanout, config);
         
         // Store the run in the target level
         let run_id = merged_run.store(storage, target_level_num)?;
@@ -207,8 +208,8 @@ mod tests {
         let mut target_level = Level::new();
         
         // Create runs for source level
-        let mut run1 = Run::new_for_level(vec![(1, 100), (3, 300)], 0, 4.0);
-        let mut run2 = Run::new_for_level(vec![(2, 200), (4, 400)], 0, 4.0);
+        let mut run1 = Run::new_for_level(vec![(1, 100), (3, 300)], 0, 4.0, None);
+        let mut run2 = Run::new_for_level(vec![(2, 200), (4, 400)], 0, 4.0, None);
         
         // Store runs
         let id1 = run1.store(&*storage, 0).unwrap();
@@ -223,13 +224,13 @@ mod tests {
         source_level.add_run(run2);
         
         // Add a pre-existing run to target level
-        let mut target_run = Run::new_for_level(vec![(5, 500), (6, 600)], 1, 4.0);
+        let mut target_run = Run::new_for_level(vec![(5, 500), (6, 600)], 1, 4.0, None);
         let target_id = target_run.store(&*storage, 1).unwrap();
         target_run.id = Some(target_id);
         target_level.add_run(target_run);
         
         // Test compaction
-        let merged_run = policy.compact(&source_level, &mut target_level, &*storage, 0, 1).unwrap();
+        let merged_run = policy.compact(&source_level, &mut target_level, &*storage, 0, 1, None).unwrap();
         
         // Verify the merged run contains all data from both source and target
         assert_eq!(merged_run.entry_count(), 6);

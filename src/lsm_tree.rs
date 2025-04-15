@@ -1,8 +1,11 @@
+use crate::compaction::{CompactionFactory, CompactionPolicy};
 use crate::level::Level;
 use crate::memtable::Memtable;
-use crate::run::{self, Run, RunStorage, StorageFactory, StorageOptions, StorageStats};
-use crate::types::{Key, Result, Value, TOMBSTONE, CompactionPolicyType, StorageType};
-use crate::compaction::{CompactionPolicy, CompactionFactory};
+use crate::run::{
+    self, compression::{AdaptiveCompressionConfig, CompressionConfig}, Run, RunStorage, StorageFactory, StorageOptions,
+    StorageStats,
+};
+use crate::types::{CompactionPolicyType, Key, Result, StorageType, Value, TOMBSTONE};
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
@@ -37,6 +40,15 @@ pub struct LSMConfig {
     /// Threshold for triggering compaction (runs per level for tiered,
     /// size ratio for leveled)
     pub compaction_threshold: usize,
+    
+    /// Configuration for compression
+    pub compression: CompressionConfig,
+    
+    /// Configuration for adaptive compression
+    pub adaptive_compression: AdaptiveCompressionConfig,
+    
+    /// Whether to collect compression statistics for evaluation
+    pub collect_compression_stats: bool,
 }
 
 impl Default for LSMConfig {
@@ -51,6 +63,12 @@ impl Default for LSMConfig {
             fanout: 4, // Default fanout of 4 (each level is 4x larger than the previous)
             compaction_policy: CompactionPolicyType::Tiered,
             compaction_threshold: 4, // Default to compact after 4 runs in a level
+            compression: CompressionConfig::default(),
+            adaptive_compression: AdaptiveCompressionConfig {
+                enabled: false, // Disabled by default for reproducibility
+                ..Default::default()
+            },
+            collect_compression_stats: false,
         }
     }
 }
@@ -61,6 +79,8 @@ pub struct LSMTree {
     storage: Arc<dyn RunStorage>,
     config: LSMConfig,
     compaction_policy: Box<dyn CompactionPolicy>,
+    
+    // NOTE: Config is passed directly to components when needed
 }
 
 impl LSMTree {
@@ -91,6 +111,8 @@ impl LSMTree {
             config.compaction_policy.clone(), 
             config.compaction_threshold
         ).expect("Failed to create compaction policy");
+        
+        // Config is passed directly to components when needed
         
         let mut tree = Self {
             buffer: Arc::new(RwLock::new(Memtable::new(config.buffer_size))),
@@ -288,10 +310,10 @@ impl LSMTree {
             data
         };
 
-        // Create a new run with a level-optimized Bloom filter
+        // Create a new run with a level-optimized Bloom filter and compression
         // Level 0 is the first level after the memtable
         let fanout = self.config.fanout as f64;
-        let mut run = Run::new_for_level(data, 0, fanout);
+        let mut run = Run::new_for_level(data, 0, fanout, Some(&self.config));
         
         // Store the run using configured storage
         let run_id = run.store(&*self.storage, 0)?;
@@ -331,13 +353,14 @@ impl LSMTree {
         // Clone source level to avoid borrow issues
         let source_level = self.levels[level_num].clone();
         
-        // Perform compaction
+        // Perform compaction with config
         match self.compaction_policy.compact(
             &source_level,
             &mut self.levels[target_level_num],
             &*self.storage,
             level_num,
             target_level_num,
+            Some(&self.config),
         ) {
             Ok(_) => {
                 // Replace the old source level with a new empty level
@@ -405,6 +428,9 @@ mod tests {
             fanout: 4, // Default fanout value
             compaction_policy: CompactionPolicyType::Tiered,
             compaction_threshold: 4, // Default threshold value
+            compression: run::CompressionConfig::default(),
+            adaptive_compression: run::AdaptiveCompressionConfig::default(),
+            collect_compression_stats: true,
         };
         (LSMTree::with_config(config), temp_dir)
     }
@@ -474,6 +500,9 @@ mod tests {
             fanout: 4, // Default fanout value
             compaction_policy: CompactionPolicyType::Tiered,
             compaction_threshold: 4, // Default threshold value
+            compression: run::CompressionConfig::default(),
+            adaptive_compression: run::AdaptiveCompressionConfig::default(),
+            collect_compression_stats: true,
         };
         
         // Create LSM tree with custom config
@@ -530,6 +559,9 @@ mod tests {
             fanout: 4, // Default fanout value
             compaction_policy: CompactionPolicyType::Tiered,
             compaction_threshold: 4, // Default threshold value
+            compression: run::CompressionConfig::default(),
+            adaptive_compression: run::AdaptiveCompressionConfig::default(),
+            collect_compression_stats: true,
         };
         
         // Create new tree - recovery should happen automatically
@@ -567,6 +599,9 @@ mod tests {
             fanout: 4, // Default fanout value
             compaction_policy: CompactionPolicyType::Tiered,
             compaction_threshold: 4, // Default threshold value
+            compression: run::CompressionConfig::default(),
+            adaptive_compression: run::AdaptiveCompressionConfig::default(),
+            collect_compression_stats: true,
         };
         
         let mut recovered_tree = LSMTree::with_config(config);

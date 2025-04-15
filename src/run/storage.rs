@@ -309,6 +309,7 @@ impl RunStorage for FileStorage {
             fence_pointers: FencePointers::new(), // Will be rebuilt during serialization
             id: Some(run_id),
             level: run.level, // Preserve level information
+            compression_stats: run.compression_stats.clone(),
         };
         
         // Ensure deterministic serialization by resealing blocks

@@ -18,6 +18,9 @@ fn test_lsm_tree_with_compaction_policy() {
         fanout: 4,
         compaction_policy: CompactionPolicyType::Tiered,
         compaction_threshold: 2, // Compact after 2 runs
+        compression: lsm_tree::run::CompressionConfig::default(),
+        adaptive_compression: lsm_tree::run::AdaptiveCompressionConfig::default(),
+        collect_compression_stats: true,
     };
     
     let mut tree = LSMTree::with_config(config);

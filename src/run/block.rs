@@ -142,10 +142,20 @@ impl Block {
         // Add checksum to data
         data.extend_from_slice(&checksum.to_le_bytes());
         
-        // Update header sizes - important for accurate serialization/deserialization
+        // Ensure the data is a multiple of 16 bytes for compression
+        let padding_needed = (16 - (data.len() % 16)) % 16;
+        if padding_needed > 0 {
+            // Add padding bytes, which won't affect the checksum 
+            // since the checksum was calculated before adding the padding
+            for _ in 0..padding_needed {
+                data.push(0);
+            }
+        }
+        
+        // Update header sizes with padded size
         self.header.uncompressed_size = data.len() as u32;
         
-        // Compress the entire block
+        // Compress the block with properly aligned data
         let compressed = compression.compress(&data)?;
         self.header.compressed_size = compressed.len() as u32;
         
@@ -161,17 +171,30 @@ impl Block {
             return Err(super::Error::Serialization("Block data too small".into()));
         }
         
-        // Calculate checksum of the decompressed data (excluding the checksum field)
-        let checksum_offset = decompressed.len() - std::mem::size_of::<u64>();
+        // First, parse header size to determine the expected data size without padding
+        let header_size = 4 + 8 + 8 + 4 + 4; // entry_count + min_key + max_key + compressed_size + uncompressed_size
+        
+        // Read entry count from the header to calculate the expected size
+        let entry_count = u32::from_le_bytes(decompressed[0..4].try_into().unwrap()) as usize;
+        
+        // Calculate the expected size: header + entries + checksum
+        // Each entry is 16 bytes (8 for key, 8 for value)
+        let expected_size = header_size + (entry_count * 16) + 8; // +8 for checksum
+        
+        // The checksum should be at this position (before any padding)
+        let checksum_offset = expected_size - 8;
+        
+        // Calculate checksum of the decompressed data up to the checksum position
         let data_for_checksum = &decompressed[..checksum_offset];
         let computed_checksum = xxhash_rust::xxh3::xxh3_64(data_for_checksum);
         
         // Extract stored checksum
-        let stored_checksum_bytes = &decompressed[checksum_offset..];
+        let stored_checksum_bytes = &decompressed[checksum_offset..checksum_offset + 8];
         let stored_checksum = u64::from_le_bytes(stored_checksum_bytes.try_into().unwrap());
         
         // Verify checksum
         if computed_checksum != stored_checksum {
+            // Properly handle the error in production code
             return Err(super::Error::Serialization(format!(
                 "Block checksum mismatch: computed={}, stored={}",
                 computed_checksum, stored_checksum

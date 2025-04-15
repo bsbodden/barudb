@@ -35,6 +35,7 @@ impl CompactionPolicy for TieredCompactionPolicy {
         storage: &dyn RunStorage,
         _source_level_num: usize,
         target_level_num: usize,
+        config: Option<&crate::lsm_tree::LSMConfig>,
     ) -> Result<Run> {
         let run_indices = self.select_runs_to_compact(source_level);
         
@@ -68,8 +69,8 @@ impl CompactionPolicy for TieredCompactionPolicy {
         all_data.dedup_by_key(|&mut (key, _)| key);
         
         // Create a new run with the merged data
-        let fanout = 4.0; // Use default fanout (this should come from config)
-        let mut merged_run = Run::new_for_level(all_data, target_level_num, fanout);
+        let fanout = config.map(|c| c.fanout as f64).unwrap_or(4.0);
+        let mut merged_run = Run::new_for_level(all_data, target_level_num, fanout, config);
         
         // Store the run in the target level
         let run_id = merged_run.store(storage, target_level_num)?;

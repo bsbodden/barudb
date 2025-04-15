@@ -344,6 +344,9 @@ fn main() -> io::Result<()> {
         fanout,
         compaction_policy,
         compaction_threshold,
+        compression: lsm_tree::run::CompressionConfig::default(),
+        adaptive_compression: lsm_tree::run::AdaptiveCompressionConfig::default(),
+        collect_compression_stats: true,
     };
     
     println!("Starting server with configuration:");

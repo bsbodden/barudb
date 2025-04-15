@@ -1,6 +1,6 @@
 mod block;
 mod block_cache;
-mod compression;
+pub mod compression;
 mod compressed_fence;
 mod fastlane_fence;
 mod fence;
@@ -16,7 +16,11 @@ use std::io;
 use crate::bloom::{Bloom, create_bloom_for_level};
 pub use block::{Block, BlockConfig};
 pub use block_cache::{BlockCache, BlockCacheConfig, BlockKey, CacheStats};
-pub use compression::{CompressionStrategy, NoopCompression};
+pub use compression::{
+    CompressionStrategy, NoopCompression, BitPackCompression, 
+    CompressionType, CompressionFactory, CompressionConfig,
+    AdaptiveCompressionConfig, AdaptiveCompression, CompressionStats
+};
 pub use compressed_fence::{
     CompressedFencePointers, AdaptivePrefixFencePointers, PrefixGroup
 };
@@ -42,6 +46,9 @@ pub enum Error {
     Filter(String),
     Compression(String),
     Storage(String),
+    InvalidInput(String),
+    InvalidData(String),
+    Other(String),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -70,6 +77,8 @@ pub struct Run {
     pub id: Option<RunId>,
     // Level information for debugging and optimization
     pub level: Option<usize>,
+    // Compression statistics for this run
+    pub compression_stats: Option<CompressionStats>,
 }
 
 // Implement Clone manually since we have Boxed trait objects
@@ -84,12 +93,19 @@ impl Clone for Run {
             fence_pointers: self.fence_pointers.clone(),
             id: self.id.clone(),
             level: self.level,
+            compression_stats: self.compression_stats.clone(),
         }
     }
 }
 
 impl Run {
     pub fn new(data: Vec<(Key, Value)>) -> Self {
+        // Use default compression (NoopCompression)
+        Self::new_with_compression(data, Box::new(NoopCompression))
+    }
+    
+    /// Create a new run with the specified compression strategy
+    pub fn new_with_compression(data: Vec<(Key, Value)>, compression: Box<dyn CompressionStrategy>) -> Self {
         let block_config = BlockConfig::default();
         let mut blocks = Vec::new();
         let mut fence_pointers = FencePointers::new();
@@ -120,14 +136,15 @@ impl Run {
             block_config,
             blocks,
             filter,
-            compression: Box::new(NoopCompression),
+            compression,
             fence_pointers,
             id: None,
             level,
+            compression_stats: None,
         }
     }
     
-    /// Create a new run with a level-optimized Bloom filter
+    /// Create a new run with a level-optimized Bloom filter and compression strategy
     /// 
     /// This creates a run with a Bloom filter that is optimized based on the level
     /// in the LSM tree, following the Monkey paper's optimization strategy.
@@ -136,7 +153,13 @@ impl Run {
     /// * `data` - Key-value pairs to store in the run
     /// * `level` - Level in the LSM tree (0-based, with 0 being the first level after memtable)
     /// * `fanout` - Fanout/size ratio of the LSM tree
-    pub fn new_for_level(data: Vec<(Key, Value)>, level: usize, fanout: f64) -> Self {
+    /// * `config` - LSM configuration with compression settings
+    pub fn new_for_level(
+        data: Vec<(Key, Value)>, 
+        level: usize, 
+        fanout: f64,
+        config: Option<&crate::lsm_tree::LSMConfig>
+    ) -> Self {
         let block_config = BlockConfig::default();
         let mut blocks = Vec::new();
         let mut fence_pointers = FencePointers::new();
@@ -160,16 +183,44 @@ impl Run {
             blocks.push(block);
         }
         
+        // Select the compression strategy based on configuration and level
+        let compression: Box<dyn CompressionStrategy> = if let Some(config) = config {
+            if config.adaptive_compression.enabled {
+                // Use adaptive compression
+                let adaptive = AdaptiveCompression::new(config.adaptive_compression.clone());
+                adaptive.select_best_strategy(&Self::data_to_bytes(&data), level)
+            } else {
+                // Use fixed compression per level
+                config.compression.create_strategy_for_level(level)
+            }
+        } else {
+            // Default to NoopCompression if no config is provided
+            Box::new(NoopCompression)
+        };
+        
         Run {
             data,
             block_config,
             blocks,
             filter,
-            compression: Box::new(NoopCompression),
+            compression,
             fence_pointers,
             id: None,
             level: Some(level),
+            compression_stats: None,
         }
+    }
+    
+    /// Helper function to convert key-value data to bytes
+    fn data_to_bytes(data: &[(Key, Value)]) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(data.len() * 16);
+        for &(k, v) in data {
+            bytes.extend_from_slice(&k.to_le_bytes());
+            bytes.extend_from_slice(&v.to_le_bytes());
+        }
+        println!("Run::data_to_bytes - Data size: {}, pairs: {}, multiple of 16: {}", 
+                 bytes.len(), data.len(), bytes.len() % 16 == 0);
+        bytes
     }
 
     pub fn get(&self, key: Key) -> Option<Value> {
@@ -462,14 +513,52 @@ impl Run {
         let mut block_data = Vec::new();
         let mut block_offsets = Vec::new();
         
+        // Track compression statistics
+        let mut total_uncompressed_size = 0;
+        let mut total_compressed_size = 0;
+        let mut total_compression_time_ms = 0.0;
+        let mut total_decompression_time_ms = 0.0;
+        
         for block in &mut self.blocks {
+            // Serialize block with timing
+            let start_time = std::time::Instant::now();
             let block_bytes = block.serialize(&*self.compression)?;
+            let compression_time = start_time.elapsed();
+            
+            // Record compression stats
+            let uncompressed_size = block.estimated_size();
+            let compressed_size = block_bytes.len();
+            total_uncompressed_size += uncompressed_size;
+            total_compressed_size += compressed_size;
+            total_compression_time_ms += compression_time.as_secs_f64() * 1000.0;
+            
+            // Verify decompression works and time it
+            let start_time = std::time::Instant::now();
+            if cfg!(test) || cfg!(debug_assertions) {
+                // In test or debug mode, verify decompression works correctly
+                let _decompressed = Block::deserialize(&block_bytes, &*self.compression)?;
+            }
+            let decompression_time = start_time.elapsed();
+            total_decompression_time_ms += decompression_time.as_secs_f64() * 1000.0;
+            
             // Record offset to this block
             block_offsets.push(block_data.len() as u32);
             // Add block size as u32
             block_data.extend_from_slice(&(block_bytes.len() as u32).to_le_bytes());
             // Add block data
             block_data.extend_from_slice(&block_bytes);
+        }
+        
+        // Store compression statistics if needed
+        if total_uncompressed_size > 0 {
+            self.compression_stats = Some(CompressionStats {
+                strategy_name: self.compression.name().to_string(),
+                original_size: total_uncompressed_size,
+                compressed_size: total_compressed_size,
+                compression_ratio: total_uncompressed_size as f64 / total_compressed_size as f64,
+                compression_time_ms: total_compression_time_ms,
+                decompression_time_ms: total_decompression_time_ms,
+            });
         }
         
         // Serialize filter
@@ -862,6 +951,7 @@ impl Run {
             fence_pointers,
             id: None,
             level: None, // Level info is not serialized currently
+            compression_stats: None,
         })
     }
 

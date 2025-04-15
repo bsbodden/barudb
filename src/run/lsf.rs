@@ -480,6 +480,7 @@ impl LSFStorage {
             fence_pointers: FencePointers::new(), // Will be rebuilt during serialization
             id: Some(run_id),  // Set the ID before serialization
             level: run.level, // Preserve level information
+            compression_stats: run.compression_stats.clone(),
         };
         
         // Serialize the run
@@ -916,6 +917,7 @@ impl RunStorage for LSFStorage {
             fence_pointers: FencePointers::new(), // Will be rebuilt during serialization
             id: None,
             level: Some(level), // Set level information
+            compression_stats: run.compression_stats.clone(),
         };
         
         // Create a new sequence specifically for the level
@@ -946,6 +948,7 @@ impl RunStorage for LSFStorage {
             fence_pointers: FencePointers::new(), // Will be rebuilt during serialization
             id: Some(run_id),  // Set the ID before serialization
             level: run_clone.level, // Preserve level information
+            compression_stats: run_clone.compression_stats.clone(),
         };
         
         // Serialize the run

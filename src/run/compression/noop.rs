@@ -1,16 +1,10 @@
-use super::Result;
+use crate::run::compression::CompressionStrategy;
+use crate::types::Result;
+use std::any::Any;
 
-#[allow(dead_code)]
-pub trait CompressionStrategy: Send + Sync {
-    fn compress(&self, data: &[u8]) -> Result<Vec<u8>>;
-    fn decompress(&self, data: &[u8]) -> Result<Vec<u8>>;
-    fn estimate_compressed_size(&self, data: &[u8]) -> usize;
-    
-    /// Clone this compression strategy as a boxed trait object
-    fn clone_box(&self) -> Box<dyn CompressionStrategy>;
-}
-
-#[derive(Debug, Default)]
+/// A compression strategy that doesn't actually compress data
+/// Used as a baseline for comparison and when compression would be counterproductive
+#[derive(Debug, Default, Clone)]
 pub struct NoopCompression;
 
 impl CompressionStrategy for NoopCompression {
@@ -28,6 +22,14 @@ impl CompressionStrategy for NoopCompression {
     
     fn clone_box(&self) -> Box<dyn CompressionStrategy> {
         Box::new(Self)
+    }
+    
+    fn name(&self) -> &'static str {
+        "noop"
+    }
+    
+    fn as_any(&mut self) -> &mut dyn Any {
+        self
     }
 }
 

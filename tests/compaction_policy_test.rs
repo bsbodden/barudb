@@ -17,7 +17,7 @@ fn create_test_storage() -> (std::sync::Arc<dyn RunStorage>, tempfile::TempDir) 
 }
 
 fn create_run_with_data(data: Vec<(Key, Value)>, level: usize) -> Run {
-    Run::new_for_level(data, level, 4.0)
+    Run::new_for_level(data, level, 4.0, None)
 }
 
 #[test]
@@ -82,7 +82,7 @@ fn test_tiered_compaction_merge() {
     level0.add_run(run2);
     
     // Test compaction
-    let merged_run = tiered_policy.compact(&level0, &mut level1, &*storage, 0, 1).unwrap();
+    let merged_run = tiered_policy.compact(&level0, &mut level1, &*storage, 0, 1, None).unwrap();
     
     // Verify merged run properties
     assert_eq!(merged_run.entry_count(), 4);

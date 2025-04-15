@@ -17,6 +17,9 @@ fn create_test_tree(run_threshold: usize, policy_type: CompactionPolicyType) -> 
         fanout: 4,
         compaction_policy: policy_type,
         compaction_threshold: run_threshold,
+        compression: lsm_tree::run::CompressionConfig::default(),
+        adaptive_compression: lsm_tree::run::AdaptiveCompressionConfig::default(),
+        collect_compression_stats: true,
     };
     (LSMTree::with_config(config), temp_dir)
 }
@@ -197,6 +200,9 @@ fn test_recovery_with_partial_compaction() {
         fanout: 4,
         compaction_policy: CompactionPolicyType::PartialTiered,
         compaction_threshold: 3,
+        compression: lsm_tree::run::CompressionConfig::default(),
+        adaptive_compression: lsm_tree::run::AdaptiveCompressionConfig::default(),
+        collect_compression_stats: true,
     };
     
     // Create tree, add data, and force compaction

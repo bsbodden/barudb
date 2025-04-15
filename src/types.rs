@@ -115,6 +115,10 @@ pub enum Error {
     BufferFull,
     /// Error during compaction
     CompactionError,
+    /// Invalid input data
+    InvalidInput(String),
+    /// Invalid or corrupted data
+    InvalidData(String),
     /// Other errors with message
     Other(String),
 }
@@ -127,6 +131,8 @@ impl std::fmt::Display for Error {
             Error::InvalidRange { start, end } => write!(f, "Invalid range: {} > {}", start, end),
             Error::BufferFull => write!(f, "Buffer is full"),
             Error::CompactionError => write!(f, "Error during compaction"),
+            Error::InvalidInput(msg) => write!(f, "Invalid input: {}", msg),
+            Error::InvalidData(msg) => write!(f, "Invalid data: {}", msg),
             Error::Other(msg) => write!(f, "{}", msg),
         }
     }
@@ -148,6 +154,17 @@ impl From<crate::run::Error> for Error {
                 std::io::ErrorKind::Other,
                 format!("Run error: {:?}", err)
             )),
+        }
+    }
+}
+
+impl From<Error> for crate::run::Error {
+    fn from(err: Error) -> Self {
+        match err {
+            Error::Io(e) => crate::run::Error::Io(e),
+            Error::InvalidInput(msg) => crate::run::Error::InvalidInput(msg),
+            Error::InvalidData(msg) => crate::run::Error::InvalidData(msg),
+            _ => crate::run::Error::Other(format!("LSM tree error: {:?}", err)),
         }
     }
 }
