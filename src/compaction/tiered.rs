@@ -56,17 +56,89 @@ impl CompactionPolicy for TieredCompactionPolicy {
         // Merge all key-value pairs from selected runs
         let mut all_data = Vec::new();
         for run in &runs {
-            if let Some(min_key) = run.min_key() {
-                if let Some(max_key) = run.max_key() {
-                    // Add all data from this run
-                    all_data.extend(run.range(min_key, max_key + 1));
+            if let Some(_) = run.min_key() {
+                if let Some(_) = run.max_key() {
+                    // CRITICAL FIX: Instead of using run.range() which might filter tombstones,
+                    // directly access the run's data which includes ALL key-value pairs including tombstones
+                    all_data.extend(run.data.clone());
+                    
+                    // Debug output for tombstones
+                    if std::env::var("RUST_LOG").map(|v| v == "debug").unwrap_or(false) {
+                        let tombstone_count = run.data.iter()
+                            .filter(|(_, v)| *v == crate::types::TOMBSTONE)
+                            .count();
+                        if tombstone_count > 0 {
+                            println!("Found {} tombstones in run during compaction", tombstone_count);
+                        }
+                    }
                 }
             }
         }
         
-        // Sort data by key and remove duplicates, keeping most recent value
+        // CRITICAL: The standard dedup_by_key doesn't guarantee which element is kept
+        // when removing duplicates. For LSM trees, we need to keep the element from the
+        // most recent run, which should be the first one in our list.
+        
+        // First, sort by key to group duplicates
         all_data.sort_by_key(|&(key, _)| key);
-        all_data.dedup_by_key(|&mut (key, _)| key);
+        
+        // Now custom deduplication that keeps tombstones
+        let mut result = Vec::with_capacity(all_data.len());
+        let mut current_key = None;
+        
+        // We need to process the data in REVERSE order to keep the most recent values
+        // (since the most recent runs are added first to all_data)
+        // NOTE: We need to iterate in reverse so we keep newer entries (including tombstones)
+        // when there are duplicates.
+        let mut all_data_reversed = all_data; // Take ownership
+        all_data_reversed.reverse();  // Process in reverse order!
+                
+        for (key, value) in all_data_reversed {
+            match current_key {
+                Some(k) if k == key => {
+                    // Skip this duplicate key (we already processed a more recent value)
+                    if std::env::var("RUST_LOG").map(|v| v == "debug").unwrap_or(false) {
+                        println!("Skipping duplicate key {} with value {}", key, value);
+                    }
+                    continue;
+                }
+                _ => {
+                    // First time seeing this key, keep it
+                    current_key = Some(key);
+                    result.push((key, value));
+                    
+                    // Debug output for tombstones
+                    if value == crate::types::TOMBSTONE && 
+                       std::env::var("RUST_LOG").map(|v| v == "debug").unwrap_or(false) {
+                        println!("Keeping tombstone for key: {}", key);
+                    }
+                }
+            }
+        }
+        
+        // Restore the original order (sort by key) for the result
+        result.sort_by_key(|&(key, _)| key);
+        
+        // Replace all_data with our deduplicated result
+        all_data = result;
+        
+        // Debug output for tombstones after deduplication
+        if std::env::var("RUST_LOG").map(|v| v == "debug").unwrap_or(false) {
+            let tombstone_count_after = all_data.iter()
+                .filter(|(_, v)| *v == crate::types::TOMBSTONE)
+                .count();
+            
+            println!("After deduplication: {} tombstones remain in the merged data", tombstone_count_after);
+            
+            // Print details of remaining tombstones
+            if tombstone_count_after > 0 {
+                for (key, value) in &all_data {
+                    if *value == crate::types::TOMBSTONE {
+                        println!("Merged data contains tombstone for key: {}", key);
+                    }
+                }
+            }
+        }
         
         // Create a new run with the merged data
         let fanout = config.map(|c| c.fanout as f64).unwrap_or(4.0);

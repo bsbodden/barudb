@@ -210,30 +210,84 @@ impl CompactionPolicy for PartialTieredCompactionPolicy {
         // Merge all key-value pairs from selected runs
         let mut all_data = Vec::new();
         for run in &runs {
-            if let Some(min_key) = run.min_key() {
-                if let Some(max_key) = run.max_key() {
-                    // Use storage-aware range method if run has ID
-                    if run.id.is_some() {
-                        // Clear any block cache entries for this run before reading
-                        // to ensure we get the latest data
-                        if let Some(run_id) = run.id {
-                            // Use any downcast available to invalidate cache
-                            if let Some(file_storage) = storage.as_any().downcast_ref::<run::FileStorage>() {
-                                let _ = file_storage.get_cache().invalidate_run(run_id);
-                            }
-                        }
-                        all_data.extend(run.range_with_storage(min_key, max_key + 1, storage));
-                    } else {
-                        // Fall back to in-memory range method for runs without ID
-                        all_data.extend(run.range(min_key, max_key + 1));
+            // CRITICAL FIX: Use data directly to preserve tombstones 
+            // regardless of whether the run is from storage or memory
+            all_data.extend(run.data.clone());
+            
+            // Debug output for tombstones
+            if std::env::var("RUST_LOG").map(|v| v == "debug").unwrap_or(false) {
+                let tombstone_count = run.data.iter()
+                    .filter(|(_, v)| *v == crate::types::TOMBSTONE)
+                    .count();
+                if tombstone_count > 0 {
+                    println!("Found {} tombstones in run during partial-tiered compaction", tombstone_count);
+                }
+            }
+        }
+        
+        // CRITICAL: The standard dedup_by_key doesn't guarantee which element is kept
+        // when removing duplicates. For LSM trees, we need to keep the element from the
+        // most recent run, which should be the first one in our list.
+        
+        // First, sort by key to group duplicates
+        all_data.sort_by_key(|&(key, _)| key);
+        
+        // Now custom deduplication that keeps tombstones
+        let mut result = Vec::with_capacity(all_data.len());
+        let mut current_key = None;
+        
+        // We need to process the data in REVERSE order to keep the most recent values
+        // (since the most recent runs are added first to all_data)
+        // NOTE: We need to iterate in reverse so we keep newer entries (including tombstones)
+        // when there are duplicates.
+        let mut all_data_reversed = all_data; // Take ownership
+        all_data_reversed.reverse();  // Process in reverse order!
+                
+        for (key, value) in all_data_reversed {
+            match current_key {
+                Some(k) if k == key => {
+                    // Skip this duplicate key (we already processed a more recent value)
+                    if std::env::var("RUST_LOG").map(|v| v == "debug").unwrap_or(false) {
+                        println!("Skipping duplicate key {} with value {}", key, value);
+                    }
+                    continue;
+                }
+                _ => {
+                    // First time seeing this key, keep it
+                    current_key = Some(key);
+                    result.push((key, value));
+                    
+                    // Debug output for tombstones
+                    if value == crate::types::TOMBSTONE && 
+                       std::env::var("RUST_LOG").map(|v| v == "debug").unwrap_or(false) {
+                        println!("Keeping tombstone for key: {}", key);
                     }
                 }
             }
         }
         
-        // Sort data by key and remove duplicates, keeping most recent value
-        all_data.sort_by_key(|&(key, _)| key);
-        all_data.dedup_by_key(|&mut (key, _)| key);
+        // Restore the original order (sort by key) for the result
+        result.sort_by_key(|&(key, _)| key);
+        
+        // Replace all_data with our deduplicated result
+        all_data = result;
+        
+        // Debug output for tombstones after deduplication
+        if std::env::var("RUST_LOG").map(|v| v == "debug").unwrap_or(false) {
+            let tombstone_count_after = all_data.iter()
+                .filter(|(_, v)| *v == crate::types::TOMBSTONE)
+                .count();
+            
+            println!("Partial-tiered compaction - After deduplication: {} tombstones remain", tombstone_count_after);
+            
+            if tombstone_count_after > 0 {
+                for (key, value) in &all_data {
+                    if *value == crate::types::TOMBSTONE {
+                        println!("Partial-tiered compaction - Merged data contains tombstone for key: {}", key);
+                    }
+                }
+            }
+        }
         
         // Create a new run with the merged data
         let fanout = config.map(|c| c.fanout as f64).unwrap_or(4.0);

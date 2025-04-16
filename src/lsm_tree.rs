@@ -186,6 +186,16 @@ impl LSMTree {
                                 Ok(mut run) => {
                                     // Set run ID for future reference
                                     run.id = Some(run_id);
+                                    
+                                    // Count and print information about tombstones for debugging
+                                    let tombstone_count = run.data.iter()
+                                        .filter(|(_, v)| *v == TOMBSTONE)
+                                        .count();
+                                    
+                                    if tombstone_count > 0 || std::env::var("RUST_LOG").map(|v| v == "debug").unwrap_or(false) {
+                                        println!("Found {} tombstones in run {}", tombstone_count, run_id);
+                                    }
+                                    
                                     // Add run to level
                                     self.levels[level].add_run(run);
                                     println!("Recovered run {} in level {}", run_id, level);
@@ -301,7 +311,13 @@ impl LSMTree {
         results.sort_by_key(|&(key, _)| key);
         results.dedup_by_key(|&mut (key, _)| key);
 
-        // Filter out tombstones
+        // CRITICAL: Filter out tombstones after deduplication to ensure deleted keys stay deleted
+        // This is essential for data consistency across restarts
+        let tombstone_count = results.iter().filter(|&(_, v)| *v == TOMBSTONE).count();
+        if tombstone_count > 0 && std::env::var("RUST_LOG").map(|v| v == "debug").unwrap_or(false) {
+            println!("Filtered {} tombstones from range query results", tombstone_count);
+        }
+        
         results.retain(|&(_, value)| value != TOMBSTONE);
 
         results
@@ -321,7 +337,13 @@ impl LSMTree {
         results.sort_by_key(|&(key, _)| key);
         results.dedup_by_key(|&mut (key, _)| key);
 
-        // Filter out tombstones
+        // CRITICAL: Filter out tombstones after deduplication to ensure deleted keys stay deleted
+        // This is essential for data consistency across restarts
+        let tombstone_count = results.iter().filter(|&(_, v)| *v == TOMBSTONE).count();
+        if tombstone_count > 0 && std::env::var("RUST_LOG").map(|v| v == "debug").unwrap_or(false) {
+            println!("Filtered {} tombstones from range_with_cache query results", tombstone_count);
+        }
+        
         results.retain(|&(_, value)| value != TOMBSTONE);
 
         results

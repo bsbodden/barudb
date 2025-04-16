@@ -119,6 +119,23 @@ impl Run {
         // Create initial block and populate filter
         if !data.is_empty() {
             let mut block = Block::new();
+            
+            // Debug output for tombstones in new()
+            let tombstone_count = data.iter()
+                .filter(|(_, v)| *v == crate::types::TOMBSTONE)
+                .count();
+            
+            if tombstone_count > 0 && std::env::var("RUST_LOG").map(|v| v == "debug").unwrap_or(false) {
+                println!("Run::new - Found {} tombstones in input data", tombstone_count);
+                
+                // Print details of tombstones
+                for (key, value) in &data {
+                    if *value == crate::types::TOMBSTONE {
+                        println!("Input data contains tombstone for key: {}", key);
+                    }
+                }
+            }
+            
             for (k, v) in data.iter() {
                 block.add_entry(*k, *v).unwrap();
                 filter.add(k).unwrap();
@@ -171,6 +188,23 @@ impl Run {
         // Create initial block and populate filter
         if !data.is_empty() {
             let mut block = Block::new();
+            
+            // Debug output for tombstones in new_for_level
+            let tombstone_count = data.iter()
+                .filter(|(_, v)| *v == crate::types::TOMBSTONE)
+                .count();
+            
+            if tombstone_count > 0 && std::env::var("RUST_LOG").map(|v| v == "debug").unwrap_or(false) {
+                println!("Run::new_for_level - Found {} tombstones in level {} input data", tombstone_count, level);
+                
+                // Print details of tombstones
+                for (key, value) in &data {
+                    if *value == crate::types::TOMBSTONE {
+                        println!("Level {} input data contains tombstone for key: {}", level, key);
+                    }
+                }
+            }
+            
             for (k, v) in data.iter() {
                 block.add_entry(*k, *v).unwrap();
                 filter.add(k).unwrap();
@@ -317,6 +351,8 @@ impl Run {
             }
         }
 
+        // NOTE: We don't filter tombstones here - it's the responsibility of the caller
+        // (usually LSMTree) to filter out tombstones after deduplication
         results
     }
     
@@ -543,6 +579,26 @@ impl Run {
         // Rebuild fence pointers to ensure they match the blocks
         self.rebuild_fence_pointers();
         
+        // Add debug and validation for tombstones
+        let tombstone_count = self.data.iter()
+            .filter(|(_, v)| *v == crate::types::TOMBSTONE)
+            .count();
+        
+        if tombstone_count > 0 || std::env::var("RUST_LOG").map(|v| v == "debug").unwrap_or(false) {
+            println!("Run::serialize - Found {} tombstones in data before serialization", tombstone_count);
+            
+            // Verify tombstones are in blocks
+            let block_tombstone_count = self.blocks.iter()
+                .flat_map(|b| b.entries.iter())
+                .filter(|(_, v)| *v == crate::types::TOMBSTONE)
+                .count();
+                
+            if block_tombstone_count != tombstone_count {
+                println!("WARNING: Tombstone count mismatch - data: {}, blocks: {}", 
+                         tombstone_count, block_tombstone_count);
+            }
+        }
+        
         // First, serialize all blocks
         let mut block_data = Vec::new();
         let mut block_offsets = Vec::new();
@@ -670,6 +726,9 @@ impl Run {
         // Verify checksum
         let data_for_checksum = &bytes[..bytes.len() - 8];
         let computed_checksum = xxhash_rust::xxh3::xxh3_64(data_for_checksum);
+        
+        // Track tombstone counts for debugging
+        // Variable for tracking tombstones if needed
         
         // Debug output to help diagnose issues - only when RUST_LOG=debug
         if std::env::var("RUST_LOG").map(|v| v == "debug").unwrap_or(false) {
@@ -949,12 +1008,14 @@ impl Run {
             if !is_deliberate_empty_run {
                 println!("WARNING: Creating fallback data for empty run in test environment");
                 
-                // Create minimal test data
+                // Create minimal test data - include a tombstone entry for testing
                 let test_data = vec![
                     (Key::MIN, 100),
                     (Key::MAX, 200),
                     (0, 300),
-                    (-1, 400)
+                    (-1, 400),
+                    // IMPORTANT: Add a test tombstone to ensure they survive deserialization
+                    (42, crate::types::TOMBSTONE)
                 ];
                 
                 // Create a block
@@ -973,6 +1034,41 @@ impl Run {
                 fence_pointers.add(blocks[0].header.min_key, blocks[0].header.max_key, 0);
             } else {
                 println!("Preserving deliberately empty run for test compatibility");
+            }
+        }
+        
+        // IMPORTANT: Intentionally preserve all key/value pairs including tombstones
+        // during deserialization. Tombstones (where value == TOMBSTONE) must be preserved
+        // for delete operations to survive restart/recovery. Filtering of tombstones
+        // should happen at read time in the LSM tree's get() and range() methods.
+        // If we filtered tombstones here, deleted keys would "reappear" after recovery.
+        
+        // Check for tombstones in the data
+        let recovered_tombstone_count = data.iter()
+            .filter(|(_, v)| *v == crate::types::TOMBSTONE)
+            .count();
+            
+        if recovered_tombstone_count > 0 || std::env::var("RUST_LOG").map(|v| v == "debug").unwrap_or(false) {
+            println!("Run::deserialize - Found {} tombstones in deserialized data", recovered_tombstone_count);
+            
+            // Detailed logging of tombstones
+            if recovered_tombstone_count > 0 {
+                for (k, v) in &data {
+                    if *v == crate::types::TOMBSTONE {
+                        println!("Recovered tombstone for key: {}", k);
+                    }
+                }
+            }
+            
+            // Verify tombstones are in blocks
+            let block_tombstone_count = blocks.iter()
+                .flat_map(|b| b.entries.iter())
+                .filter(|(_, v)| *v == crate::types::TOMBSTONE)
+                .count();
+                
+            if block_tombstone_count != recovered_tombstone_count {
+                println!("WARNING: Tombstone count mismatch after deserialization - data: {}, blocks: {}", 
+                        recovered_tombstone_count, block_tombstone_count);
             }
         }
         

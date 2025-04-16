@@ -776,3 +776,93 @@ fn test_basic_recovery() {
     
     println!("=== Basic recovery test completed successfully ===");
 }
+
+/// Test specifically for tombstone persistence across restarts
+#[test]
+fn test_tombstone_persistence() {
+    setup();
+    
+    println!("=== Starting tombstone persistence test ===");
+    
+    // Create a unique test directory
+    let (test_dir, _temp_dir_handle) = create_test_dir("tombstone_persistence");
+    
+    // Phase 1: Create and populate initial tree
+    println!("Phase 1: Creating and populating initial tree");
+    let config = create_lsm_config(
+        test_dir.clone(),
+        CompactionPolicyType::Tiered,
+        3,
+        true, // sync_writes = true for reliability
+    );
+    let mut tree = LSMTree::with_config(config);
+    
+    // Add initial data
+    println!("Phase 1: Adding initial data");
+    for i in 1..20 {
+        tree.put(i, i * 100).unwrap();
+    }
+    
+    // Flush to ensure data is on disk
+    println!("Phase 1: Flushing initial data");
+    tree.flush_buffer_to_level0().unwrap();
+    
+    // Delete specific keys
+    println!("Phase 1: Deleting specific keys");
+    let deleted_keys = vec![5, 10, 15];
+    for key in &deleted_keys {
+        tree.delete(*key).unwrap();
+    }
+    
+    // Flush again to ensure tombstones are on disk
+    println!("Phase 1: Flushing tombstones");
+    tree.flush_buffer_to_level0().unwrap();
+    
+    // Force compaction to ensure a clean state
+    println!("Phase 1: Forcing compaction");
+    tree.force_compact_all().unwrap();
+    
+    // Verify deletions
+    println!("Phase 1: Verifying deletions");
+    for i in 1..20 {
+        if deleted_keys.contains(&i) {
+            assert_eq!(tree.get(i), None, "Delete verification failed for key {}", i);
+        } else {
+            assert_eq!(tree.get(i), Some(i * 100), "Data verification failed for key {}", i);
+        }
+    }
+    
+    // Explicitly drop the tree
+    println!("Phase 1: Explicitly dropping tree");
+    drop(tree);
+    
+    // Add a small delay to ensure filesystem operations complete
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    
+    // Phase 2: Recover tree and verify tombstones persist
+    println!("Phase 2: Recovering tree and verifying tombstones");
+    let recovery_config = create_lsm_config(test_dir, CompactionPolicyType::Tiered, 3, true);
+    let recovered_tree = LSMTree::with_config(recovery_config);
+    
+    // Verify deleted keys remain deleted after recovery
+    println!("Phase 2: Verifying tombstones survived recovery");
+    for i in 1..20 {
+        if deleted_keys.contains(&i) {
+            assert_eq!(
+                recovered_tree.get(i), 
+                None, 
+                "Tombstone for key {} was lost during recovery", 
+                i
+            );
+        } else {
+            assert_eq!(
+                recovered_tree.get(i), 
+                Some(i * 100), 
+                "Recovery failed for key {}", 
+                i
+            );
+        }
+    }
+    
+    println!("=== Tombstone persistence test completed successfully ===");
+}

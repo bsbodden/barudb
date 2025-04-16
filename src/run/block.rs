@@ -83,6 +83,24 @@ impl Block {
     pub fn seal(&mut self) -> Result<()> {
         if !self.is_sealed {
             self.entries.sort_by_key(|(k, _)| *k);
+            
+            // Debug output for tombstones
+            if std::env::var("RUST_LOG").map(|v| v == "debug").unwrap_or(false) {
+                let tombstone_count = self.entries.iter()
+                    .filter(|(_, v)| *v == crate::types::TOMBSTONE)
+                    .count();
+                
+                if tombstone_count > 0 {
+                    println!("Block::seal - Found {} tombstones before sealing block", tombstone_count);
+                    // Print details of tombstones
+                    for (key, value) in &self.entries {
+                        if *value == crate::types::TOMBSTONE {
+                            println!("Block contains tombstone for key: {}", key);
+                        }
+                    }
+                }
+            }
+            
             self.header.uncompressed_size = self.estimated_size() as u32;
             self.is_sealed = true;
         }
@@ -282,6 +300,13 @@ impl Block {
             // Value
             let value = i64::from_le_bytes(decompressed[offset..offset+8].try_into().unwrap());
             offset += 8;
+            
+            // Track tombstones for debugging
+            if value == crate::types::TOMBSTONE {
+                if std::env::var("RUST_LOG").map(|v| v == "debug").unwrap_or(false) {
+                    println!("Found TOMBSTONE for key {} during block deserialization", key);
+                }
+            }
             
             entries.push((key, value));
         }
