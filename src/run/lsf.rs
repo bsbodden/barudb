@@ -373,6 +373,9 @@ impl LSFStorage {
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap()
                     .as_secs(),
+                block_offsets: Vec::new(), // LSF storage doesn't track block offsets yet
+                block_sizes: Vec::new(),   // LSF storage doesn't track block sizes yet
+                fence_pointers_data: None, // LSF storage doesn't store fence pointers separately yet
             };
             
             // Update index
@@ -573,6 +576,9 @@ impl LSFStorage {
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
                 .as_secs(),
+            block_offsets: Vec::new(), // LSF storage doesn't track block offsets yet
+            block_sizes: Vec::new(),   // LSF storage doesn't track block sizes yet
+            fence_pointers_data: None, // LSF storage doesn't store fence pointers separately yet
         };
         
         // Update index
@@ -1024,6 +1030,9 @@ impl RunStorage for LSFStorage {
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
                 .as_secs(),
+            block_offsets: Vec::new(), // LSF storage doesn't track block offsets yet
+            block_sizes: Vec::new(),   // LSF storage doesn't track block sizes yet
+            fence_pointers_data: None, // LSF storage doesn't store fence pointers separately yet
         };
         
         // Log the successful storage operation

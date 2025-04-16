@@ -1,6 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use lsm_tree::run::{
-    FileStorage, LSFStorage, Run, RunStorage, StorageOptions
+    Block, FileStorage, LSFStorage, Run, RunStorage, StorageOptions
 };
 use std::sync::Arc;
 use tempfile::tempdir;
@@ -146,6 +146,182 @@ fn bench_store_operations(c: &mut Criterion) {
     group.finish();
 }
 
+/// Benchmark for I/O batching operations
+fn bench_io_batching(c: &mut Criterion) {
+    // Print a header for better readability
+    println!("\n==== I/O Batching Benchmark ====");
+    println!("Compares regular loading vs batched loading");
+    
+    let mut group = c.benchmark_group("io_batching");
+    
+    // Create test data with multiple blocks
+    let create_multi_block_run = |block_count: usize| {
+        let mut run = Run::new(vec![]);
+        
+        // Create multiple blocks with different data
+        for i in 0..block_count {
+            let mut block = Block::new();
+            for j in 0..10 {
+                let key = (i * 100 + j) as i64;
+                block.add_entry(key, key * 10).unwrap();
+            }
+            block.seal().unwrap();
+            run.blocks.push(block);
+        }
+        
+        // Build fence pointers
+        // Since we can't call the private rebuild_fence_pointers method directly,
+        // we clear and add each pointer manually
+        run.fence_pointers.clear();
+        for (idx, block) in run.blocks.iter().enumerate() {
+            run.fence_pointers.add(block.header.min_key, block.header.max_key, idx);
+        }
+        run
+    };
+    
+    // Test with runs having different numbers of blocks
+    for &block_count in &[5, 10, 20] {
+        let temp_dir = tempdir().unwrap();
+        let options = StorageOptions {
+            base_path: temp_dir.path().to_path_buf(),
+            create_if_missing: true,
+            max_open_files: 100,
+            sync_writes: false,
+        };
+        
+        let storage = Arc::new(FileStorage::new(options).unwrap());
+        let run = create_multi_block_run(block_count);
+        
+        // Store the run
+        let run_id = storage.store_run(0, &run).unwrap();
+        
+        // Generate indices for sequential blocks to load
+        let block_indices: Vec<usize> = (0..block_count).collect();
+        
+        // Benchmark individual loading (one block at a time)
+        group.bench_with_input(
+            BenchmarkId::new("individual_loading", block_count),
+            &block_indices,
+            |b, indices| {
+                b.iter(|| {
+                    let mut blocks = Vec::with_capacity(indices.len());
+                    for &idx in indices {
+                        blocks.push(storage.load_block(run_id, idx).unwrap());
+                    }
+                    black_box(blocks)
+                })
+            }
+        );
+        
+        // Benchmark batch loading (all blocks at once)
+        group.bench_with_input(
+            BenchmarkId::new("batch_loading", block_count),
+            &block_indices,
+            |b, indices| {
+                b.iter(|| {
+                    black_box(storage.load_blocks_batch(run_id, indices).unwrap())
+                })
+            }
+        );
+        
+        // Benchmark range query performance with varying range sizes
+        for &range_size in &[10, 50, 100] {
+            // Benchmark traditional range query (one block at a time)
+            let run_clone = run.clone();
+            let storage_clone = storage.clone();
+            group.bench_with_input(
+                BenchmarkId::new(format!("range_query_traditional_{}", range_size), block_count),
+                &range_size,
+                move |b, &range_size| {
+                    // Range that spans multiple blocks
+                    let start_key = 0;
+                    let end_key = range_size;
+                    
+                    // Clone run for testing
+                    let mut test_run = run_clone.clone();
+                    test_run.id = Some(run_id);
+                    
+                    // Override range_with_storage to use individual block loading
+                    b.iter(|| {
+                        let mut results = Vec::new();
+                        
+                        // Get candidate blocks
+                        let candidate_blocks = test_run.fence_pointers.find_blocks_in_range(start_key, end_key);
+                        
+                        // Load each block individually
+                        for &block_idx in &candidate_blocks {
+                            if block_idx < test_run.blocks.len() {
+                                results.extend(test_run.blocks[block_idx].range(start_key, end_key));
+                            } else {
+                                // Load block from storage individually
+                                if let Ok(block) = storage_clone.load_block(run_id, block_idx) {
+                                    results.extend(block.range(start_key, end_key));
+                                }
+                            }
+                        }
+                        
+                        black_box(results)
+                    })
+                }
+            );
+            
+            // Benchmark optimized range query (using batch loading)
+            let run_clone = run.clone();
+            let storage_clone = storage.clone();
+            group.bench_with_input(
+                BenchmarkId::new(format!("range_query_optimized_{}", range_size), block_count),
+                &range_size,
+                move |b, &range_size| {
+                    // Range that spans multiple blocks
+                    let start_key = 0;
+                    let end_key = range_size;
+                    
+                    // Clone run for testing
+                    let mut test_run = run_clone.clone();
+                    test_run.id = Some(run_id);
+                    
+                    b.iter(|| {
+                        let mut results = Vec::new();
+                        
+                        // Get candidate blocks
+                        let candidate_blocks = test_run.fence_pointers.find_blocks_in_range(start_key, end_key);
+                        
+                        // Split into in-memory blocks and blocks to load
+                        let mut in_memory_blocks = Vec::new();
+                        let mut blocks_to_load = Vec::new();
+                        
+                        for &block_idx in &candidate_blocks {
+                            if block_idx < test_run.blocks.len() {
+                                in_memory_blocks.push(block_idx);
+                            } else {
+                                blocks_to_load.push(block_idx);
+                            }
+                        }
+                        
+                        // Process in-memory blocks
+                        for &block_idx in &in_memory_blocks {
+                            results.extend(test_run.blocks[block_idx].range(start_key, end_key));
+                        }
+                        
+                        // Load blocks from storage in batch if needed
+                        if !blocks_to_load.is_empty() {
+                            if let Ok(blocks) = storage_clone.load_blocks_batch(run_id, &blocks_to_load) {
+                                for block in blocks {
+                                    results.extend(block.range(start_key, end_key));
+                                }
+                            }
+                        }
+                        
+                        black_box(results)
+                    })
+                }
+            );
+        }
+    }
+    
+    group.finish();
+}
+
 // Configure the benchmark group
 criterion_group! {
     name = benches;
@@ -154,7 +330,7 @@ criterion_group! {
         .measurement_time(std::time::Duration::from_secs(2))  // Shorter measurement time
         .noise_threshold(0.05)  // Less sensitive to noise (5% threshold)
         .without_plots();  // Skip plot generation to reduce output size
-    targets = bench_store_operations
+    targets = bench_store_operations, bench_io_batching
 }
 
 criterion_main!(benches);

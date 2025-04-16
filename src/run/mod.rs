@@ -345,7 +345,7 @@ impl Run {
                         return Some(value);
                     }
                 } else {
-                    // Load block from storage
+                    // Load block from storage - using direct or batched loading
                     match storage.load_block(run_id, block_idx) {
                         Ok(block) => {
                             if let Some(value) = block.get(&key) {
@@ -367,13 +367,22 @@ impl Run {
                 }
             }
             
-            // Then try loading from storage if needed
-            // Get block count from metadata
+            // Then try loading from storage if needed in batch
             if let Ok(block_count) = storage.get_block_count(run_id) {
-                for block_idx in self.blocks.len()..block_count {
-                    if let Ok(block) = storage.load_block(run_id, block_idx) {
-                        if let Some(value) = block.get(&key) {
-                            return Some(value);
+                // Avoid creating empty vectors
+                if block_count > self.blocks.len() {
+                    // Prepare batch of blocks to load
+                    let blocks_to_load: Vec<_> = (self.blocks.len()..block_count).collect();
+                    
+                    if !blocks_to_load.is_empty() {
+                        // Use batch loading for efficiency
+                        if let Ok(loaded_blocks) = storage.load_blocks_batch(run_id, &blocks_to_load) {
+                            // Check each loaded block
+                            for block in loaded_blocks {
+                                if let Some(value) = block.get(&key) {
+                                    return Some(value);
+                                }
+                            }
                         }
                     }
                 }
@@ -398,15 +407,35 @@ impl Run {
 
         // Use fence pointers to find candidate blocks efficiently
         if !self.fence_pointers.is_empty() {
+            // Get all candidate block indices
             let candidate_blocks = self.fence_pointers.find_blocks_in_range(start, end);
             
-            for block_idx in candidate_blocks {
-                // First try in-memory blocks
+            if candidate_blocks.is_empty() {
+                return results;
+            }
+            
+            // Split into in-memory blocks and blocks to load
+            let mut in_memory_blocks = Vec::new();
+            let mut blocks_to_load = Vec::new();
+            
+            for &block_idx in &candidate_blocks {
                 if block_idx < self.blocks.len() {
-                    results.extend(self.blocks[block_idx].range(start, end));
+                    in_memory_blocks.push(block_idx);
                 } else {
-                    // Load block from storage
-                    if let Ok(block) = storage.load_block(run_id, block_idx) {
+                    blocks_to_load.push(block_idx);
+                }
+            }
+            
+            // Process in-memory blocks
+            for block_idx in in_memory_blocks {
+                results.extend(self.blocks[block_idx].range(start, end));
+            }
+            
+            // Load blocks from storage in batch if needed
+            if !blocks_to_load.is_empty() {
+                if let Ok(loaded_blocks) = storage.load_blocks_batch(run_id, &blocks_to_load) {
+                    // Process each loaded block
+                    for block in loaded_blocks {
                         results.extend(block.range(start, end));
                     }
                 }
@@ -420,12 +449,17 @@ impl Run {
                 }
             }
             
-            // Then try loading from storage if needed
+            // Then try loading from storage in batch if needed
             if let Ok(block_count) = storage.get_block_count(run_id) {
-                for block_idx in self.blocks.len()..block_count {
-                    if let Ok(block) = storage.load_block(run_id, block_idx) {
-                        if block.header.min_key <= end && block.header.max_key >= start {
-                            results.extend(block.range(start, end));
+                let blocks_to_load: Vec<_> = (self.blocks.len()..block_count).collect();
+                
+                if !blocks_to_load.is_empty() {
+                    if let Ok(loaded_blocks) = storage.load_blocks_batch(run_id, &blocks_to_load) {
+                        // Process each loaded block
+                        for block in loaded_blocks {
+                            if block.header.min_key <= end && block.header.max_key >= start {
+                                results.extend(block.range(start, end));
+                            }
                         }
                     }
                 }

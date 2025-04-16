@@ -62,6 +62,12 @@ pub struct RunMetadata {
     pub entry_count: usize,
     pub total_size_bytes: u64,
     pub creation_timestamp: u64,
+    /// Offset of each block within the data file (for direct block access)
+    pub block_offsets: Vec<u64>,
+    /// Size of each block for direct block loading
+    pub block_sizes: Vec<u32>,
+    /// Serialized fence pointers for faster access without loading the full run
+    pub fence_pointers_data: Option<Vec<u8>>,
 }
 
 /// Options for run storage initialization
@@ -135,6 +141,32 @@ pub trait RunStorage: Send + Sync + AsAny {
         let run = self.load_run(run_id)?;
         Ok(run.fence_pointers.clone())
     }
+    
+    /// Load multiple blocks in one operation (efficient batched I/O)
+    fn load_blocks_batch(&self, run_id: RunId, block_indices: &[usize]) -> Result<Vec<Block>> {
+        // Default implementation: load each block individually
+        let mut blocks = Vec::with_capacity(block_indices.len());
+        for &idx in block_indices {
+            match self.load_block(run_id, idx) {
+                Ok(block) => blocks.push(block),
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(blocks)
+    }
+    
+    /// Load multiple runs in one operation (for compaction)
+    fn load_runs_batch(&self, run_ids: &[RunId]) -> Result<Vec<Run>> {
+        // Default implementation: load each run individually
+        let mut runs = Vec::with_capacity(run_ids.len());
+        for &id in run_ids {
+            match self.load_run(id) {
+                Ok(run) => runs.push(run),
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(runs)
+    }
 }
 
 /// Factory for creating RunStorage implementations
@@ -163,7 +195,7 @@ impl StorageFactory {
 }
 
 /// File-based storage implementation with block caching
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FileStorage {
     base_path: PathBuf,
     options: StorageOptions,
@@ -325,6 +357,68 @@ impl RunStorage for FileStorage {
         // Write run data to file
         std::fs::write(&data_path, &run_data)?;
 
+        // Parse run data to extract block offsets and sizes
+        let mut block_offsets = Vec::with_capacity(run.blocks.len());
+        let mut block_sizes = Vec::with_capacity(run.blocks.len());
+        
+        // Extract block offsets and sizes from the serialized run data
+        // This requires understanding the run serialization format from Run::serialize
+        if !run_data.is_empty() {
+            // First, extract the block count (first 4 bytes)
+            let block_count = u32::from_le_bytes(run_data[0..4].try_into().unwrap()) as usize;
+            
+            if block_count > 0 {
+                // Skip over run header, filter data, and fence pointer data to get to offsets table
+                let mut offset = 4; // Skip block count
+                
+                // Skip filter size and data
+                let filter_size = u32::from_le_bytes(run_data[offset..offset+4].try_into().unwrap()) as usize;
+                offset += 4 + filter_size;
+                
+                // Skip fence pointers size and data
+                let fence_size = u32::from_le_bytes(run_data[offset..offset+4].try_into().unwrap()) as usize;
+                offset += 4 + fence_size;
+                
+                // Capture the fence pointers data for faster loading
+                // We'll use this in a future version when we integrate it with the metadata
+                let _fence_pointers_data = if fence_size > 0 {
+                    Some(run_data[offset-fence_size..offset].to_vec())
+                } else {
+                    None
+                };
+                // TODO: Store fence pointers data in metadata when implementing I/O batching for LSF storage
+                
+                // Read block offsets table
+                let offsets_table_start = offset;
+                let blocks_data_start = offsets_table_start + (block_count * 4);
+                
+                for i in 0..block_count {
+                    let block_offset = u32::from_le_bytes(
+                        run_data[offsets_table_start + i*4..offsets_table_start + (i+1)*4].try_into().unwrap()
+                    ) as u64;
+                    
+                    // Compute actual byte offset in the data file
+                    let byte_offset = blocks_data_start as u64 + block_offset;
+                    block_offsets.push(byte_offset);
+                    
+                    // Read block size from the first 4 bytes at the block offset
+                    let size_offset = blocks_data_start + block_offset as usize;
+                    if size_offset + 4 <= run_data.len() {
+                        let block_size = u32::from_le_bytes(
+                            run_data[size_offset..size_offset+4].try_into().unwrap()
+                        );
+                        block_sizes.push(block_size);
+                    } else {
+                        // Handle error case
+                        block_sizes.push(0);
+                    }
+                }
+            }
+        }
+        
+        // Get serialized fence pointers
+        let fence_data = run.fence_pointers.serialize().ok();
+        
         // Create metadata from the run
         let metadata = RunMetadata {
             id: run_id,
@@ -337,6 +431,9 @@ impl RunStorage for FileStorage {
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
                 .as_secs(),
+            block_offsets,
+            block_sizes,
+            fence_pointers_data: fence_data,
         };
 
         // Serialize metadata to JSON
@@ -573,7 +670,7 @@ impl RunStorage for FileStorage {
             )));
         }
         
-        // Get metadata to check block count
+        // Get metadata to check block count and offsets
         let metadata = self.get_run_metadata(run_id)?;
         if block_idx >= metadata.block_count {
             return Err(super::Error::Block(format!(
@@ -582,8 +679,49 @@ impl RunStorage for FileStorage {
             )));
         }
         
-        // We would implement direct block loading here, but for now we need to
-        // load the entire run and extract the block we need
+        // Check if we have block offsets and sizes available in metadata
+        if !metadata.block_offsets.is_empty() && !metadata.block_sizes.is_empty() && 
+           block_idx < metadata.block_offsets.len() && block_idx < metadata.block_sizes.len() {
+            // We have the necessary information to load the block directly
+            let data_path = self.get_run_data_path(run_id);
+            let block_offset = metadata.block_offsets[block_idx];
+            let block_size = metadata.block_sizes[block_idx] as usize;
+            
+            // Sanity check to avoid loading very large blocks due to potential metadata corruption
+            if block_size > 100 * 1024 * 1024 { // 100 MB limit
+                return Err(super::Error::Block(format!(
+                    "Block size too large: {} bytes", block_size
+                )));
+            }
+            
+            if block_size == 0 {
+                return Err(super::Error::Block(format!(
+                    "Invalid block size: 0 bytes"
+                )));
+            }
+            
+            // Open the file and seek to the block offset
+            let mut file = std::fs::File::open(data_path)?;
+            std::io::Seek::seek(&mut file, std::io::SeekFrom::Start(block_offset))?;
+            
+            // Skip the block size field (4 bytes) as that's included in the offset calculation
+            std::io::Seek::seek(&mut file, std::io::SeekFrom::Current(4))?;
+            
+            // Read the block data
+            let mut block_data = vec![0; block_size];
+            std::io::Read::read_exact(&mut file, &mut block_data)?;
+            
+            // Deserialize the block
+            let compression = Box::new(super::NoopCompression);
+            let block = super::Block::deserialize(&block_data, &*compression)?;
+            
+            // Cache the block for future use
+            self.block_cache.insert(cache_key, block.clone())?;
+            
+            return Ok(block);
+        }
+        
+        // Fallback: load the entire run if block offsets are not available
         let run = self.load_run(run_id)?;
         
         // Extract the block we need
@@ -602,9 +740,242 @@ impl RunStorage for FileStorage {
         }
     }
     
-    // For future implementation:
-    // TODO: Implement direct block loading by tracking block offsets in metadata and seeking directly
-    // to load only the specific block
+    // Implement batch block loading for FileStorage
+    fn load_blocks_batch(&self, run_id: RunId, block_indices: &[usize]) -> Result<Vec<Block>> {
+        if block_indices.is_empty() {
+            return Ok(Vec::new());
+        }
+        
+        // Check if run exists
+        if !self.run_exists(run_id)? {
+            return Err(super::Error::Storage(format!(
+                "Run not found: {:?}",
+                run_id
+            )));
+        }
+        
+        // Get metadata to check block count and offsets
+        let metadata = self.get_run_metadata(run_id)?;
+        
+        // Check if we have block offsets and sizes available in metadata
+        let has_offsets = !metadata.block_offsets.is_empty() && !metadata.block_sizes.is_empty();
+        
+        if has_offsets {
+            // Prepare result vector and track which indices we need to load
+            let mut blocks = vec![None; block_indices.len()];
+            let mut missing_indices = Vec::new();
+            
+            // First, check cache for each block and identify missing ones
+            for (result_idx, &block_idx) in block_indices.iter().enumerate() {
+                // Validate block index
+                if block_idx >= metadata.block_count {
+                    return Err(super::Error::Block(format!(
+                        "Block index {} out of bounds for run {:?} with {} blocks",
+                        block_idx, run_id, metadata.block_count
+                    )));
+                }
+                
+                // Check cache
+                let cache_key = BlockKey { run_id, block_idx };
+                if let Some(cached_block) = self.block_cache.get(&cache_key) {
+                    blocks[result_idx] = Some((*cached_block).clone());
+                } else {
+                    missing_indices.push((result_idx, block_idx));
+                }
+            }
+            
+            // If everything was cached, return early
+            if missing_indices.is_empty() {
+                return Ok(blocks.into_iter().map(|b| b.unwrap()).collect());
+            }
+            
+            // Sort missing indices by block offset for sequential reading
+            if !missing_indices.is_empty() {
+                missing_indices.sort_by_key(|&(_, block_idx)| metadata.block_offsets[block_idx]);
+            }
+            
+            // Open the file once
+            let data_path = self.get_run_data_path(run_id);
+            let mut file = std::fs::File::open(data_path)?;
+            
+            // Create NoopCompression instance for block deserialization
+            let compression = Box::new(super::NoopCompression);
+            
+            // Load each missing block
+            for (result_idx, block_idx) in missing_indices {
+                let block_offset = metadata.block_offsets[block_idx];
+                let block_size = metadata.block_sizes[block_idx] as usize;
+                
+                // Sanity check block size
+                if block_size > 100 * 1024 * 1024 || block_size == 0 { // 100 MB limit
+                    continue; // Skip this block
+                }
+                
+                // Seek to the block position
+                std::io::Seek::seek(&mut file, std::io::SeekFrom::Start(block_offset))?;
+                
+                // Skip the block size field (4 bytes)
+                std::io::Seek::seek(&mut file, std::io::SeekFrom::Current(4))?;
+                
+                // Read the block data
+                let mut block_data = vec![0; block_size];
+                if let Err(e) = std::io::Read::read_exact(&mut file, &mut block_data) {
+                    // Log error but continue with other blocks
+                    if std::env::var("RUST_LOG").map(|v| v == "debug").unwrap_or(false) {
+                        println!("Error reading block data: {:?}", e);
+                    }
+                    continue;
+                }
+                
+                // Deserialize the block
+                match super::Block::deserialize(&block_data, &*compression) {
+                    Ok(block) => {
+                        // Cache the block
+                        let cache_key = BlockKey { run_id, block_idx };
+                        if let Err(e) = self.block_cache.insert(cache_key, block.clone()) {
+                            // Log error but continue
+                            if std::env::var("RUST_LOG").map(|v| v == "debug").unwrap_or(false) {
+                                println!("Error inserting block into cache: {:?}", e);
+                            }
+                        }
+                        
+                        // Store in result array
+                        blocks[result_idx] = Some(block);
+                    },
+                    Err(e) => {
+                        // Log error but continue with other blocks
+                        if std::env::var("RUST_LOG").map(|v| v == "debug").unwrap_or(false) {
+                            println!("Error deserializing block: {:?}", e);
+                        }
+                    }
+                }
+            }
+            
+            // If any blocks are still missing, fall back to individual loading
+            for (result_idx, block) in blocks.iter_mut().enumerate() {
+                if block.is_none() {
+                    let block_idx = block_indices[result_idx];
+                    match self.load_block(run_id, block_idx) {
+                        Ok(loaded_block) => *block = Some(loaded_block),
+                        Err(_) => {
+                            // If still can't load, create error for this batch
+                            return Err(super::Error::Block(format!(
+                                "Failed to load block {} for run {:?}", block_idx, run_id
+                            )));
+                        }
+                    }
+                }
+            }
+            
+            // Unwrap all blocks (should be safe now)
+            Ok(blocks.into_iter().map(|b| b.unwrap()).collect())
+        } else {
+            // Fall back to loading entire run if block offsets are not available
+            let run = self.load_run(run_id)?;
+            
+            // Extract requested blocks
+            let mut blocks = Vec::with_capacity(block_indices.len());
+            for &idx in block_indices {
+                if idx < run.blocks.len() {
+                    let block = run.blocks[idx].clone();
+                    
+                    // Cache the block
+                    let cache_key = BlockKey { run_id, block_idx: idx };
+                    if let Err(e) = self.block_cache.insert(cache_key, block.clone()) {
+                        // Log error but continue
+                        if std::env::var("RUST_LOG").map(|v| v == "debug").unwrap_or(false) {
+                            println!("Error inserting block into cache: {:?}", e);
+                        }
+                    }
+                    
+                    blocks.push(block);
+                } else {
+                    return Err(super::Error::Block(format!(
+                        "Block index {} out of bounds for run {:?} with {} blocks",
+                        idx, run_id, run.blocks.len()
+                    )));
+                }
+            }
+            
+            Ok(blocks)
+        }
+    }
+    
+    // Implement efficient batch loading for multiple runs
+    fn load_runs_batch(&self, run_ids: &[RunId]) -> Result<Vec<Run>> {
+        if run_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        
+        // Load each run in parallel using threads
+        use std::sync::{Arc, Mutex};
+        use std::thread;
+        
+        // Maximum number of threads to spawn
+        let max_threads = std::cmp::min(run_ids.len(), 4);
+        let chunk_size = std::cmp::max(1, run_ids.len() / max_threads);
+        
+        let results = Arc::new(Mutex::new(vec![None; run_ids.len()]));
+        let errors = Arc::new(Mutex::new(Vec::new()));
+        
+        // Split the work into chunks and spawn threads
+        let mut handles = Vec::new();
+        for i in 0..max_threads {
+            let start = i * chunk_size;
+            let end = if i == max_threads - 1 {
+                run_ids.len()
+            } else {
+                std::cmp::min((i + 1) * chunk_size, run_ids.len())
+            };
+            
+            if start >= end {
+                continue;
+            }
+            
+            let chunk = run_ids[start..end].to_vec();
+            let results = Arc::clone(&results);
+            let errors = Arc::clone(&errors);
+            let storage = self.clone();
+            
+            let handle = thread::spawn(move || {
+                for (local_idx, &run_id) in chunk.iter().enumerate() {
+                    let global_idx = start + local_idx;
+                    match storage.load_run(run_id) {
+                        Ok(run) => {
+                            let mut res = results.lock().unwrap();
+                            res[global_idx] = Some(run);
+                        },
+                        Err(e) => {
+                            let mut err = errors.lock().unwrap();
+                            err.push((global_idx, format!("Failed to load run {:?}: {:?}", run_id, e)));
+                        }
+                    }
+                }
+            });
+            
+            handles.push(handle);
+        }
+        
+        // Wait for all threads to complete
+        for handle in handles {
+            handle.join().unwrap();
+        }
+        
+        // Check if there were any errors
+        let errors = errors.lock().unwrap();
+        if !errors.is_empty() {
+            // Return the first error encountered
+            return Err(super::Error::Storage(format!(
+                "Error in batch loading runs: {}", errors[0].1
+            )));
+        }
+        
+        // Unwrap all results
+        let results = results.lock().unwrap();
+        let runs: Vec<Run> = results.iter().map(|r| r.clone().unwrap()).collect();
+        
+        Ok(runs)
+    }
     
     // Override the default implementation for efficient fence pointer loading
     fn load_fence_pointers(&self, run_id: RunId) -> Result<FencePointers> {
@@ -616,13 +987,28 @@ impl RunStorage for FileStorage {
             )));
         }
         
-        // For now, we still need to load the entire run
-        // In the future, we could serialize fence pointers separately in the metadata
+        // Get metadata to check for stored fence pointers
+        let metadata = self.get_run_metadata(run_id)?;
+        
+        // If we have fence pointers data in the metadata, use it
+        if let Some(fence_data) = &metadata.fence_pointers_data {
+            if !fence_data.is_empty() {
+                // Try to deserialize the fence pointers
+                match FencePointers::deserialize(fence_data) {
+                    Ok(fence_pointers) => return Ok(fence_pointers),
+                    Err(e) => {
+                        // Log the error but continue with fallback
+                        if std::env::var("RUST_LOG").map(|v| v == "debug").unwrap_or(false) {
+                            println!("Failed to deserialize fence pointers from metadata: {:?}", e);
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Fallback: load the entire run if fence pointers data is not available
         let run = self.load_run(run_id)?;
         Ok(run.fence_pointers.clone())
-        
-        // TODO: Future optimization - store fence pointers in the metadata file
-        // and implement direct loading of just the fence pointers
     }
 }
 
@@ -639,7 +1025,7 @@ mod json_impl {
         {
             use serde::ser::SerializeStruct;
 
-            let mut s = serializer.serialize_struct("RunMetadata", 7)?;
+            let mut s = serializer.serialize_struct("RunMetadata", 11)?;
             s.serialize_field("id_level", &self.id.level)?;
             s.serialize_field("id_sequence", &self.id.sequence)?;
             s.serialize_field("min_key", &self.min_key)?;
@@ -648,6 +1034,9 @@ mod json_impl {
             s.serialize_field("entry_count", &self.entry_count)?;
             s.serialize_field("total_size_bytes", &self.total_size_bytes)?;
             s.serialize_field("creation_timestamp", &self.creation_timestamp)?;
+            s.serialize_field("block_offsets", &self.block_offsets)?;
+            s.serialize_field("block_sizes", &self.block_sizes)?;
+            s.serialize_field("fence_pointers_data", &self.fence_pointers_data)?;
             s.end()
         }
     }
@@ -667,6 +1056,12 @@ mod json_impl {
                 entry_count: usize,
                 total_size_bytes: u64,
                 creation_timestamp: u64,
+                #[serde(default)]
+                block_offsets: Vec<u64>,
+                #[serde(default)]
+                block_sizes: Vec<u32>,
+                #[serde(default)]
+                fence_pointers_data: Option<Vec<u8>>,
             }
 
             let helper = Helper::deserialize(deserializer)?;
@@ -679,6 +1074,9 @@ mod json_impl {
                 entry_count: helper.entry_count,
                 total_size_bytes: helper.total_size_bytes,
                 creation_timestamp: helper.creation_timestamp,
+                block_offsets: helper.block_offsets,
+                block_sizes: helper.block_sizes,
+                fence_pointers_data: helper.fence_pointers_data,
             })
         }
     }
@@ -775,6 +1173,12 @@ mod tests {
         let metadata = storage.get_run_metadata(run_id).unwrap();
         assert_eq!(metadata.id, run_id);
         assert_eq!(metadata.entry_count, 3);
+        
+        // Check that block offsets are captured in metadata
+        assert!(!metadata.block_offsets.is_empty());
+        assert!(!metadata.block_sizes.is_empty());
+        assert_eq!(metadata.block_offsets.len(), run.blocks.len());
+        assert_eq!(metadata.block_sizes.len(), run.blocks.len());
 
         // Get stats
         let stats = storage.get_stats().unwrap();
@@ -793,5 +1197,184 @@ mod tests {
         assert!(!storage.run_exists(run_id).unwrap());
         let runs_after_delete = storage.list_runs(0).unwrap();
         assert_eq!(runs_after_delete.len(), 0);
+    }
+    
+    #[test]
+    fn test_direct_block_loading() {
+        let temp_dir = tempdir().unwrap();
+        let options = StorageOptions {
+            base_path: temp_dir.path().to_path_buf(),
+            create_if_missing: true,
+            max_open_files: 100,
+            sync_writes: false,
+        };
+
+        let storage = FileStorage::new(options).unwrap();
+
+        // Create a run with multiple blocks
+        let mut run = Run::new(vec![]);
+        
+        // Add multiple blocks with different data
+        let mut block1 = Block::new();
+        block1.add_entry(1, 100).unwrap();
+        block1.add_entry(2, 200).unwrap();
+        block1.seal().unwrap();
+        
+        let mut block2 = Block::new();
+        block2.add_entry(10, 1000).unwrap();
+        block2.add_entry(20, 2000).unwrap();
+        block2.seal().unwrap();
+        
+        let mut block3 = Block::new();
+        block3.add_entry(100, 10000).unwrap();
+        block3.add_entry(200, 20000).unwrap();
+        block3.seal().unwrap();
+        
+        run.blocks = vec![block1, block2, block3];
+        run.rebuild_fence_pointers();
+        
+        // Store the run
+        let run_id = storage.store_run(0, &run).unwrap();
+        
+        // Get metadata to verify block offsets
+        let metadata = storage.get_run_metadata(run_id).unwrap();
+        assert_eq!(metadata.block_count, 3);
+        assert_eq!(metadata.block_offsets.len(), 3);
+        assert_eq!(metadata.block_sizes.len(), 3);
+        
+        // Load blocks directly
+        let block0 = storage.load_block(run_id, 0).unwrap();
+        let block1 = storage.load_block(run_id, 1).unwrap();
+        let block2 = storage.load_block(run_id, 2).unwrap();
+        
+        // Verify block contents
+        assert_eq!(block0.get(&1), Some(100));
+        assert_eq!(block1.get(&10), Some(1000));
+        assert_eq!(block2.get(&100), Some(10000));
+    }
+    
+    #[test]
+    fn test_batch_block_loading() {
+        let temp_dir = tempdir().unwrap();
+        let options = StorageOptions {
+            base_path: temp_dir.path().to_path_buf(),
+            create_if_missing: true,
+            max_open_files: 100,
+            sync_writes: false,
+        };
+
+        let storage = FileStorage::new(options).unwrap();
+
+        // Create a run with multiple blocks
+        let mut run = Run::new(vec![]);
+        
+        // Create 10 blocks with different data
+        for i in 0..10 {
+            let mut block = Block::new();
+            block.add_entry(i * 10, i * 100).unwrap();
+            block.add_entry(i * 10 + 1, i * 100 + 10).unwrap();
+            block.seal().unwrap();
+            run.blocks.push(block);
+        }
+        
+        run.rebuild_fence_pointers();
+        
+        // Store the run
+        let run_id = storage.store_run(0, &run).unwrap();
+        
+        // Batch load blocks 2, 5, and 8
+        let batch_indices = vec![2, 5, 8];
+        let loaded_blocks = storage.load_blocks_batch(run_id, &batch_indices).unwrap();
+        
+        // Verify block count
+        assert_eq!(loaded_blocks.len(), 3);
+        
+        // Verify contents
+        assert_eq!(loaded_blocks[0].get(&20), Some(200));
+        assert_eq!(loaded_blocks[1].get(&50), Some(500));
+        assert_eq!(loaded_blocks[2].get(&80), Some(800));
+    }
+    
+    #[test]
+    fn test_batch_run_loading() {
+        let temp_dir = tempdir().unwrap();
+        let options = StorageOptions {
+            base_path: temp_dir.path().to_path_buf(),
+            create_if_missing: true,
+            max_open_files: 100,
+            sync_writes: false,
+        };
+
+        let storage = FileStorage::new(options).unwrap();
+
+        // Create multiple runs
+        let mut run_ids = Vec::new();
+        
+        for i in 0..5 {
+            let data = vec![(i, i * 100)];
+            let run = Run::new(data);
+            let run_id = storage.store_run(0, &run).unwrap();
+            run_ids.push(run_id);
+        }
+        
+        // Batch load all runs
+        let loaded_runs = storage.load_runs_batch(&run_ids).unwrap();
+        
+        // Verify run count
+        assert_eq!(loaded_runs.len(), 5);
+        
+        // Verify contents
+        for i in 0..5 {
+            let key = i as i64; // Convert to i64 for Key type
+            assert_eq!(loaded_runs[i].get(key), Some(key * 100));
+        }
+    }
+    
+    #[test]
+    fn test_fence_pointers_in_metadata() {
+        let temp_dir = tempdir().unwrap();
+        let options = StorageOptions {
+            base_path: temp_dir.path().to_path_buf(),
+            create_if_missing: true,
+            max_open_files: 100,
+            sync_writes: false,
+        };
+
+        let storage = FileStorage::new(options).unwrap();
+
+        // Create a run with multiple blocks
+        let mut run = Run::new(vec![]);
+        
+        // Add multiple blocks with different data
+        let mut block1 = Block::new();
+        block1.add_entry(1, 100).unwrap();
+        block1.add_entry(2, 200).unwrap();
+        block1.seal().unwrap();
+        
+        let mut block2 = Block::new();
+        block2.add_entry(10, 1000).unwrap();
+        block2.add_entry(20, 2000).unwrap();
+        block2.seal().unwrap();
+        
+        run.blocks = vec![block1, block2];
+        run.rebuild_fence_pointers();
+        
+        // Verify fence pointers before storing
+        assert_eq!(run.fence_pointers.len(), 2);
+        
+        // Store the run
+        let run_id = storage.store_run(0, &run).unwrap();
+        
+        // Get metadata to verify fence pointers data is present
+        let metadata = storage.get_run_metadata(run_id).unwrap();
+        assert!(metadata.fence_pointers_data.is_some());
+        
+        // Load fence pointers directly
+        let loaded_fence_pointers = storage.load_fence_pointers(run_id).unwrap();
+        
+        // Verify fence pointers
+        assert_eq!(loaded_fence_pointers.len(), 2);
+        assert_eq!(loaded_fence_pointers.find_block_for_key(1), Some(0));
+        assert_eq!(loaded_fence_pointers.find_block_for_key(15), Some(1));
     }
 }
