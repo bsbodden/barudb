@@ -202,10 +202,19 @@ lsm-tree/
 │   │   ├── mod.rs       # Compaction framework & factory
 │   │   ├── tiered.rs    # Tiered compaction policy
 │   │   ├── leveled.rs   # Leveled compaction policy
-│   │   └── lazy_leveled.rs # Hybrid lazy leveled compaction
+│   │   ├── lazy_leveled.rs # Hybrid lazy leveled compaction
+│   │   └── partial_tiered.rs # Partial tiered compaction for optimization
 │   ├── run/             # Run (data block) implementations
 │   │   ├── block.rs     # Block structure
-│   │   ├── compression.rs # Data compression
+│   │   ├── block_cache.rs # Block caching implementation
+│   │   ├── compression/ # Compression implementations
+│   │   │   ├── bit_pack.rs # Bit packing compression
+│   │   │   ├── delta.rs # Delta encoding
+│   │   │   ├── dictionary.rs # Dictionary compression
+│   │   │   ├── lz4.rs   # LZ4 compression
+│   │   │   ├── mod.rs   # Compression framework
+│   │   │   ├── noop.rs  # No-op compression
+│   │   │   └── snappy.rs # Snappy compression
 │   │   ├── compressed_fence.rs # Prefix-compressed fence pointers
 │   │   ├── fastlane_fence.rs # FastLane-optimized fence pointers
 │   │   ├── fence.rs     # Base fence pointers
@@ -223,11 +232,28 @@ lsm-tree/
 │   ├── test_helpers.rs  # Testing utilities
 │   └── types.rs         # Type definitions
 ├── benches/             # Performance benchmarks
+│   ├── block_cache_bench.rs # Block cache benchmarks
+│   ├── bloom_bench.rs   # Bloom filter benchmarks
+│   ├── compressed_fence_bench.rs # Fence pointer compression benchmarks
+│   ├── compression_bench.rs # Data compression benchmarks
+│   ├── fastlane_bench.rs # FastLane fence pointer benchmarks
+│   ├── fence_bench.rs   # Standard fence pointer benchmarks
+│   └── storage_bench.rs # Storage implementation benchmarks
 ├── tests/               # Integration tests
 │   ├── compaction_integration_test.rs # Tests for compaction policies
 │   ├── compaction_policy_test.rs     # Unit tests for compaction
+│   ├── compressed_fence_test.rs      # Tests for compressed fence pointers
+│   ├── compression_comparison_test.rs # Tests for compression algorithms
+│   ├── compression_test.rs           # Basic compression tests
+│   ├── integration_test.rs           # Basic LSM tree tests
+│   ├── lsf_storage_test.rs           # Log-structured file tests
 │   ├── lsm_tree_compaction_test.rs   # LSM tree with compaction
-│   └── ... other test files
+│   ├── partial_compaction_test.rs    # Partial compaction tests
+│   ├── recovery_reliability_test.rs  # Recovery and crash resilience tests
+│   ├── run_storage_test.rs           # Storage tests
+│   ├── server_commands_test.rs       # Server command tests
+│   ├── storage_comparison_test.rs    # Storage type comparison
+│   └── workload_test.rs              # Full workload tests
 └── README.md
 ```
 
@@ -250,6 +276,10 @@ The implementation includes:
   - Tiered compaction: Multiple runs per level, compact when threshold reached
   - Leveled compaction: Single run per level, compact on any new run
   - Lazy Leveled compaction: Hybrid approach with tiered behavior at level 0
+- Robust recovery mechanisms for crash resilience
+  - Deterministic recovery sequence with explicit flush points
+  - Comprehensive recovery tests for all compaction policies
+  - Support for both synchronous and asynchronous writes
 - Pluggable component architecture for easy experimentation
 
 ## Monkey-Optimized Bloom Filters
