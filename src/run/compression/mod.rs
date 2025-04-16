@@ -5,11 +5,15 @@ mod bit_pack;
 mod delta;
 mod dictionary;
 mod noop;
+mod lz4;
+mod snappy;
 
 pub use bit_pack::BitPackCompression;
 pub use delta::DeltaCompression;
 pub use dictionary::DictionaryCompression;
 pub use noop::NoopCompression;
+pub use lz4::Lz4Compression;
+pub use snappy::SnappyCompression;
 
 use std::any::Any;
 
@@ -50,6 +54,10 @@ pub enum CompressionType {
     BitPack,
     /// Dictionary-based run-length encoding for repeated patterns
     Dictionary,
+    /// LZ4 compression (fast with good compression ratio)
+    Lz4,
+    /// Snappy compression (very fast with moderate compression ratio)
+    Snappy,
 }
 
 impl CompressionType {
@@ -60,6 +68,8 @@ impl CompressionType {
             CompressionType::Delta => "delta",
             CompressionType::BitPack => "bit_pack",
             CompressionType::Dictionary => "dictionary",
+            CompressionType::Lz4 => "lz4",
+            CompressionType::Snappy => "snappy",
         }
     }
     
@@ -71,6 +81,8 @@ impl CompressionType {
             "delta" => Some(CompressionType::Delta),
             "bit_pack" => Some(CompressionType::BitPack),
             "dictionary" => Some(CompressionType::Dictionary),
+            "lz4" => Some(CompressionType::Lz4),
+            "snappy" => Some(CompressionType::Snappy),
             _ => None,
         }
     }
@@ -101,6 +113,8 @@ impl CompressionFactory {
             CompressionType::Delta => Box::new(DeltaCompression::default()),
             CompressionType::BitPack => Box::new(BitPackCompression::default()),
             CompressionType::Dictionary => Box::new(DictionaryCompression::default()),
+            CompressionType::Lz4 => Box::new(Lz4Compression::default()),
+            CompressionType::Snappy => Box::new(SnappyCompression::default()),
         }
     }
 }
@@ -134,6 +148,7 @@ impl Default for CompressionConfig {
             enabled: true,
             level_types: vec![None; 10], // Support up to 10 levels by default
             memtable_default: CompressionType::None, // No compression for in-memory
+            // Keep using BitPack as default for now to maintain compatibility with tests
             l0_default: CompressionType::BitPack, // Moderate compression for L0
             lower_level_default: CompressionType::BitPack, // More aggressive for lower levels
             block_size: 1024, // Default block size for compression
@@ -277,23 +292,43 @@ impl AdaptiveCompression {
                     return Box::new(BitPackCompression::default());
                 } else if repetition > 0.5 {
                     return Box::new(DictionaryCompression::default());
+                } else {
+                    // Use LZ4 for general purpose compression with good ratio
+                    return Box::new(Lz4Compression::default());
+                }
+            } else if level == 2 {
+                // For middle levels, balance speed and compression
+                if is_sequential {
+                    return Box::new(DeltaCompression::default());
+                } else {
+                    // Snappy offers good speed with reasonable compression
+                    return Box::new(SnappyCompression::default());
                 }
             } else if level <= 1 {
                 // For top levels, prioritize speed
-                return Box::new(NoopCompression::default());
+                // Use Snappy for level 1 (fast with some compression)
+                if level == 1 {
+                    return Box::new(SnappyCompression::default());
+                } else {
+                    // Use no compression for level 0 (fastest)
+                    return Box::new(NoopCompression::default());
+                }
             }
         }
         
-        // General heuristics
+        // General heuristics based on data characteristics
         if is_sequential {
             Box::new(DeltaCompression::default())
         } else if range < 10000 {
             Box::new(BitPackCompression::default())
         } else if repetition > 0.3 {
             Box::new(DictionaryCompression::default())
+        } else if data.len() > 10240 {
+            // For larger data blocks, use LZ4 for better compression ratio
+            Box::new(Lz4Compression::default())
         } else {
-            // Default to no compression if no clear winner
-            Box::new(NoopCompression::default())
+            // For smaller blocks, use Snappy for speed
+            Box::new(SnappyCompression::default())
         }
     }
     

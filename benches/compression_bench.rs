@@ -1,7 +1,8 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use lsm_tree::run::{
+use lsm_tree::run::compression::{
     BitPackCompression, CompressionFactory, CompressionStrategy, CompressionType,
-    NoopCompression, CompressionStats
+    NoopCompression, CompressionStats, DeltaCompression, DictionaryCompression,
+    Lz4Compression, SnappyCompression
 };
 use lsm_tree::types::{Key, Value};
 use rand::{Rng, SeedableRng};
@@ -104,6 +105,10 @@ fn benchmark_compression(c: &mut Criterion) {
     let strategies = [
         ("noop", Box::new(NoopCompression::default()) as Box<dyn CompressionStrategy>),
         ("bit_pack", Box::new(BitPackCompression::default()) as Box<dyn CompressionStrategy>),
+        ("delta", Box::new(DeltaCompression::default()) as Box<dyn CompressionStrategy>),
+        ("dictionary", Box::new(DictionaryCompression::default()) as Box<dyn CompressionStrategy>),
+        ("lz4", Box::new(Lz4Compression::default()) as Box<dyn CompressionStrategy>),
+        ("snappy", Box::new(SnappyCompression::default()) as Box<dyn CompressionStrategy>),
     ];
     
     let mut group = c.benchmark_group("compression");

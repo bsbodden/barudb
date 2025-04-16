@@ -177,12 +177,28 @@ impl Block {
         // Read entry count from the header to calculate the expected size
         let entry_count = u32::from_le_bytes(decompressed[0..4].try_into().unwrap()) as usize;
         
+        // Sanity check: if entry count is unreasonably large, the data is likely corrupted
+        const MAX_REASONABLE_ENTRIES: usize = 1_000_000; // No block should have more than this many entries
+        if entry_count > MAX_REASONABLE_ENTRIES {
+            return Err(super::Error::Serialization(format!(
+                "Block data corrupted: unreasonable entry count {}", entry_count
+            )));
+        }
+        
         // Calculate the expected size: header + entries + checksum
         // Each entry is 16 bytes (8 for key, 8 for value)
         let expected_size = header_size + (entry_count * 16) + 8; // +8 for checksum
         
         // The checksum should be at this position (before any padding)
         let checksum_offset = expected_size - 8;
+        
+        // Safety check: if data is shorter than expected, it's corrupted
+        if decompressed.len() < expected_size {
+            return Err(super::Error::Serialization(format!(
+                "Block data corrupted: expected size {} but got {}", 
+                expected_size, decompressed.len()
+            )));
+        }
         
         // Calculate checksum of the decompressed data up to the checksum position
         let data_for_checksum = &decompressed[..checksum_offset];
@@ -206,6 +222,16 @@ impl Block {
         
         // Read entry count
         let entry_count = u32::from_le_bytes(decompressed[offset..offset+4].try_into().unwrap());
+        
+        // Sanity check: If entry count is unreasonably large, data might be corrupted
+        if entry_count > 1_000_000 {
+            // Log warning and return error for corrupted block
+            eprintln!("Warning: Possibly corrupted block with entry count: {}", entry_count);
+            return Err(super::Error::Serialization(format!(
+                "Block data corrupted: unreasonable entry count {}", entry_count
+            )));
+        }
+        
         offset += 4;
         
         // Read min key
@@ -233,6 +259,17 @@ impl Block {
             uncompressed_size,
             checksum: stored_checksum,
         };
+        
+        // Safety check: expected size based on entry count
+        let expected_size = offset + (entry_count as usize * 16); // Each entry is 16 bytes (8 for key, 8 for value)
+        
+        // Check if the data is large enough for the expected number of entries
+        if decompressed.len() < expected_size {
+            return Err(super::Error::Serialization(format!(
+                "Block data corrupted: expected size {} but got {}", 
+                expected_size, decompressed.len()
+            )));
+        }
         
         // Parse entries
         let mut entries = Vec::with_capacity(entry_count as usize);

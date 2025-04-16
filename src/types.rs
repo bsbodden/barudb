@@ -119,6 +119,8 @@ pub enum Error {
     InvalidInput(String),
     /// Invalid or corrupted data
     InvalidData(String),
+    /// Error during compression or decompression
+    CompressionFailed(String),
     /// Other errors with message
     Other(String),
 }
@@ -133,6 +135,7 @@ impl std::fmt::Display for Error {
             Error::CompactionError => write!(f, "Error during compaction"),
             Error::InvalidInput(msg) => write!(f, "Invalid input: {}", msg),
             Error::InvalidData(msg) => write!(f, "Invalid data: {}", msg),
+            Error::CompressionFailed(msg) => write!(f, "Compression error: {}", msg),
             Error::Other(msg) => write!(f, "{}", msg),
         }
     }

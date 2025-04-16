@@ -345,26 +345,36 @@ fn compare_compression_ratios() {
     measure_compression_type("Delta", &sequential_bytes, CompressionType::Delta);
     measure_compression_type("BitPack", &sequential_bytes, CompressionType::BitPack);
     measure_compression_type("Dictionary", &sequential_bytes, CompressionType::Dictionary);
+    measure_compression_type("Lz4", &sequential_bytes, CompressionType::Lz4);
+    measure_compression_type("Snappy", &sequential_bytes, CompressionType::Snappy);
     
     println!("\nRandom Data ({} bytes):", random_bytes.len());
     measure_compression_type("Delta", &random_bytes, CompressionType::Delta);
     measure_compression_type("BitPack", &random_bytes, CompressionType::BitPack);
     measure_compression_type("Dictionary", &random_bytes, CompressionType::Dictionary);
+    measure_compression_type("Lz4", &random_bytes, CompressionType::Lz4);
+    measure_compression_type("Snappy", &random_bytes, CompressionType::Snappy);
     
     println!("\nRepeated Data ({} bytes):", repeated_bytes.len());
     measure_compression_type("Delta", &repeated_bytes, CompressionType::Delta);
     measure_compression_type("BitPack", &repeated_bytes, CompressionType::BitPack);
     measure_compression_type("Dictionary", &repeated_bytes, CompressionType::Dictionary);
+    measure_compression_type("Lz4", &repeated_bytes, CompressionType::Lz4);
+    measure_compression_type("Snappy", &repeated_bytes, CompressionType::Snappy);
     
     println!("\nDelta-friendly Data ({} bytes):", delta_bytes.len());
     measure_compression_type("Delta", &delta_bytes, CompressionType::Delta);
     measure_compression_type("BitPack", &delta_bytes, CompressionType::BitPack);
     measure_compression_type("Dictionary", &delta_bytes, CompressionType::Dictionary);
+    measure_compression_type("Lz4", &delta_bytes, CompressionType::Lz4);
+    measure_compression_type("Snappy", &delta_bytes, CompressionType::Snappy);
     
     println!("\nSmall-range Data ({} bytes):", small_range_bytes.len());
     measure_compression_type("Delta", &small_range_bytes, CompressionType::Delta);
     measure_compression_type("BitPack", &small_range_bytes, CompressionType::BitPack);
     measure_compression_type("Dictionary", &small_range_bytes, CompressionType::Dictionary);
+    measure_compression_type("Lz4", &small_range_bytes, CompressionType::Lz4);
+    measure_compression_type("Snappy", &small_range_bytes, CompressionType::Snappy);
 }
 
 /// Measure compression performance for a specific compression type
@@ -517,6 +527,8 @@ fn test_compression_strategies() {
     evaluate_compression_type(CompressionType::Delta);
     evaluate_compression_type(CompressionType::BitPack);
     evaluate_compression_type(CompressionType::Dictionary);
+    evaluate_compression_type(CompressionType::Lz4);
+    evaluate_compression_type(CompressionType::Snappy);
     
     // Test adaptive compression
     evaluate_adaptive_compression();
@@ -537,6 +549,8 @@ fn test_all_compression_types() {
         CompressionType::BitPack,
         CompressionType::Delta,
         CompressionType::Dictionary,
+        CompressionType::Lz4,
+        CompressionType::Snappy,
     ] {
         println!("\n--- Testing {:?} Compression ---", compression_type);
         
@@ -602,6 +616,8 @@ fn test_basic_compression() {
         CompressionType::BitPack,
         CompressionType::Delta,
         CompressionType::Dictionary,
+        CompressionType::Lz4,
+        CompressionType::Snappy,
     ] {
         println!("Testing {:?} compression directly", compression_type);
         let compressor = CompressionFactory::create(compression_type);

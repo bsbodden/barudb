@@ -16,6 +16,8 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 chrono = "0.4"
 tempfile = "3.8"  # For the benchmark binary
+lz4 = "1.24.0"    # LZ4 compression algorithm
+snap = "1.1.0"    # Snappy compression algorithm
 
 [dev-dependencies]
 criterion = { version = "0.5.1", features = ["html_reports"] }
@@ -33,5 +35,9 @@ harness = false
 
 [[bench]]
 name = "block_cache_bench"
+harness = false
+
+[[bench]]
+name = "compression_bench"
 harness = false
 

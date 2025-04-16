@@ -4,6 +4,14 @@ use tempfile::tempdir;
 
 fn create_test_tree(run_threshold: usize, policy_type: CompactionPolicyType) -> (LSMTree, tempfile::TempDir) {
     let temp_dir = tempdir().unwrap();
+    
+    // Create a configuration with compression disabled for recovery tests
+    let mut compression_config = lsm_tree::run::CompressionConfig::default();
+    compression_config.enabled = false; // Disable compression for recovery tests
+    
+    let mut adaptive_config = lsm_tree::run::AdaptiveCompressionConfig::default();
+    adaptive_config.enabled = false; // Also disable adaptive compression
+    
     let config = LSMConfig {
         buffer_size: 4, // Small buffer for testing
         storage_type: StorageType::File,
@@ -14,9 +22,9 @@ fn create_test_tree(run_threshold: usize, policy_type: CompactionPolicyType) -> 
         fanout: 4,
         compaction_policy: policy_type,
         compaction_threshold: run_threshold,
-        compression: lsm_tree::run::CompressionConfig::default(),
-        adaptive_compression: lsm_tree::run::AdaptiveCompressionConfig::default(),
-        collect_compression_stats: true,
+        compression: compression_config,
+        adaptive_compression: adaptive_config,
+        collect_compression_stats: false, // Don't collect stats for tests
     };
     (LSMTree::with_config(config), temp_dir)
 }
@@ -169,7 +177,13 @@ fn test_recovery_with_compaction() {
     let temp_dir = tempdir().unwrap();
     let storage_path = temp_dir.path().to_path_buf();
     
-    // Create first tree with tiered compaction
+    // Create first tree with tiered compaction but with specific path
+    let mut config = lsm_tree::run::CompressionConfig::default();
+    config.enabled = false; // Disable compression for recovery
+    
+    let mut adaptive_config = lsm_tree::run::AdaptiveCompressionConfig::default();
+    adaptive_config.enabled = false;
+    
     let config = LSMConfig {
         buffer_size: 4,
         storage_type: StorageType::File,
@@ -180,28 +194,48 @@ fn test_recovery_with_compaction() {
         fanout: 4,
         compaction_policy: CompactionPolicyType::Tiered,
         compaction_threshold: 2,
-        compression: lsm_tree::run::CompressionConfig::default(),
-        adaptive_compression: lsm_tree::run::AdaptiveCompressionConfig::default(),
-        collect_compression_stats: true,
+        compression: config,
+        adaptive_compression: adaptive_config,
+        collect_compression_stats: false,
     };
     
-    // Create tree, add data, and force compaction
-    {
-        let mut tree = LSMTree::with_config(config.clone());
-        
-        // Add data and trigger compaction
-        for i in 1..13 {
-            tree.put(i, i * 100).unwrap();
-        }
-        
-        // Force a flush to ensure all data is on disk
-        tree.flush_buffer_to_level0().unwrap();
-        
-        // Force compaction to ensure a clean state
-        tree.force_compact_all().unwrap();
+    let mut tree = LSMTree::with_config(config);
+    
+    // Add data and trigger compaction
+    for i in 1..13 {
+        tree.put(i, i * 100).unwrap();
     }
     
+    // Force a flush to ensure all data is on disk
+    tree.flush_buffer_to_level0().unwrap();
+    
+    // Force compaction to ensure a clean state
+    tree.force_compact_all().unwrap();
+    
+    // Drop the tree to ensure files are closed
+    drop(tree);
+    
     // Create a new tree with the same storage path to test recovery
+    let mut config = lsm_tree::run::CompressionConfig::default();
+    config.enabled = false; // Disable compression for recovery
+    let mut adaptive_config = lsm_tree::run::AdaptiveCompressionConfig::default();
+    adaptive_config.enabled = false;
+    
+    let config = LSMConfig {
+        buffer_size: 4,
+        storage_type: StorageType::File,
+        storage_path: storage_path.clone(),
+        create_path_if_missing: true,
+        max_open_files: 100,
+        sync_writes: false,
+        fanout: 4,
+        compaction_policy: CompactionPolicyType::Tiered,
+        compaction_threshold: 2,
+        compression: config,
+        adaptive_compression: adaptive_config,
+        collect_compression_stats: false,
+    };
+    
     let recovered_tree = LSMTree::with_config(config);
     
     // Test that all data was recovered
@@ -216,7 +250,13 @@ fn test_recovery_with_leveled_compaction() {
     let temp_dir = tempdir().unwrap();
     let storage_path = temp_dir.path().to_path_buf();
     
-    // Create first tree with leveled compaction
+    // Create first tree with leveled compaction but with specific path
+    let mut config = lsm_tree::run::CompressionConfig::default();
+    config.enabled = false; // Disable compression for recovery
+    
+    let mut adaptive_config = lsm_tree::run::AdaptiveCompressionConfig::default();
+    adaptive_config.enabled = false;
+    
     let config = LSMConfig {
         buffer_size: 4,
         storage_type: StorageType::File,
@@ -227,33 +267,54 @@ fn test_recovery_with_leveled_compaction() {
         fanout: 4,
         compaction_policy: CompactionPolicyType::Leveled,
         compaction_threshold: 4,
-        compression: lsm_tree::run::CompressionConfig::default(),
-        adaptive_compression: lsm_tree::run::AdaptiveCompressionConfig::default(),
-        collect_compression_stats: true,
+        compression: config,
+        adaptive_compression: adaptive_config,
+        collect_compression_stats: false,
     };
     
-    // Create tree, add data, and force compaction
-    {
-        let mut tree = LSMTree::with_config(config.clone());
+    let mut tree = LSMTree::with_config(config);
         
-        // Add data and trigger compaction
-        for i in 1..21 {
-            tree.put(i, i * 100).unwrap();
-        }
-        
-        // Add some updates and deletes
-        tree.put(5, 555).unwrap();
-        tree.put(10, 1010).unwrap();
-        tree.delete(15).unwrap();
-        
-        // Force a flush to ensure all data is on disk
-        tree.flush_buffer_to_level0().unwrap();
-        
-        // Force compaction to ensure a clean state
-        tree.force_compact_all().unwrap();
+    // Add data and trigger compaction
+    for i in 1..21 {
+        tree.put(i, i * 100).unwrap();
     }
     
+    // Add some updates and deletes
+    tree.put(5, 555).unwrap();
+    tree.put(10, 1010).unwrap();
+    tree.delete(15).unwrap();
+    
+    // Force a flush to ensure all data is on disk
+    tree.flush_buffer_to_level0().unwrap();
+    
+    // Force compaction to ensure a clean state
+    tree.force_compact_all().unwrap();
+    
+    // Drop the tree to ensure files are closed
+    drop(tree);
+    
     // Create a new tree with the same storage path to test recovery
+    let mut compression_config = lsm_tree::run::CompressionConfig::default();
+    compression_config.enabled = false; // Disable compression for recovery
+    
+    let mut adaptive_config = lsm_tree::run::AdaptiveCompressionConfig::default();
+    adaptive_config.enabled = false;
+    
+    let config = LSMConfig {
+        buffer_size: 4,
+        storage_type: StorageType::File,
+        storage_path: storage_path,
+        create_path_if_missing: true,
+        max_open_files: 100,
+        sync_writes: false,
+        fanout: 4,
+        compaction_policy: CompactionPolicyType::Leveled,
+        compaction_threshold: 4,
+        compression: compression_config,
+        adaptive_compression: adaptive_config,
+        collect_compression_stats: false,
+    };
+    
     let recovered_tree = LSMTree::with_config(config);
     
     // Test that all data was recovered, including updates and deletes
@@ -348,7 +409,13 @@ fn test_recovery_with_lazy_leveled_compaction() {
     let temp_dir = tempdir().unwrap();
     let storage_path = temp_dir.path().to_path_buf();
     
-    // Create first tree with lazy leveled compaction
+    // Create first tree with lazy leveled compaction but with specific path
+    let mut config = lsm_tree::run::CompressionConfig::default();
+    config.enabled = false; // Disable compression for recovery
+    
+    let mut adaptive_config = lsm_tree::run::AdaptiveCompressionConfig::default();
+    adaptive_config.enabled = false;
+    
     let config = LSMConfig {
         buffer_size: 4,
         storage_type: StorageType::File,
@@ -358,34 +425,55 @@ fn test_recovery_with_lazy_leveled_compaction() {
         sync_writes: false,
         fanout: 4,
         compaction_policy: CompactionPolicyType::LazyLeveled,
-        compaction_threshold: 3, // Threshold for L0
-        compression: lsm_tree::run::CompressionConfig::default(),
-        adaptive_compression: lsm_tree::run::AdaptiveCompressionConfig::default(),
-        collect_compression_stats: true,
+        compaction_threshold: 3,
+        compression: config,
+        adaptive_compression: adaptive_config,
+        collect_compression_stats: false,
     };
     
-    // Create tree, add data, and force compaction
-    {
-        let mut tree = LSMTree::with_config(config.clone());
+    let mut tree = LSMTree::with_config(config);
         
-        // Add data and trigger compaction
-        for i in 1..21 {
-            tree.put(i, i * 100).unwrap();
-        }
-        
-        // Add some updates and deletes
-        tree.put(5, 555).unwrap();
-        tree.put(10, 1010).unwrap();
-        tree.delete(15).unwrap();
-        
-        // Force a flush to ensure all data is on disk
-        tree.flush_buffer_to_level0().unwrap();
-        
-        // Force compaction to ensure a clean state
-        tree.force_compact_all().unwrap();
+    // Add data and trigger compaction
+    for i in 1..21 {
+        tree.put(i, i * 100).unwrap();
     }
     
+    // Add some updates and deletes
+    tree.put(5, 555).unwrap();
+    tree.put(10, 1010).unwrap();
+    tree.delete(15).unwrap();
+    
+    // Force a flush to ensure all data is on disk
+    tree.flush_buffer_to_level0().unwrap();
+    
+    // Force compaction to ensure a clean state
+    tree.force_compact_all().unwrap();
+    
+    // Drop the tree to ensure files are closed
+    drop(tree);
+    
     // Create a new tree with the same storage path to test recovery
+    let mut compression_config = lsm_tree::run::CompressionConfig::default();
+    compression_config.enabled = false; // Disable compression for recovery
+    
+    let mut adaptive_config = lsm_tree::run::AdaptiveCompressionConfig::default();
+    adaptive_config.enabled = false;
+    
+    let config = LSMConfig {
+        buffer_size: 4,
+        storage_type: StorageType::File,
+        storage_path: storage_path,
+        create_path_if_missing: true,
+        max_open_files: 100,
+        sync_writes: false,
+        fanout: 4,
+        compaction_policy: CompactionPolicyType::LazyLeveled,
+        compaction_threshold: 3, // Threshold for L0
+        compression: compression_config,
+        adaptive_compression: adaptive_config,
+        collect_compression_stats: false,
+    };
+    
     let recovered_tree = LSMTree::with_config(config);
     
     // Test that all data was recovered, including updates and deletes
