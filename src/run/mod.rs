@@ -1,5 +1,5 @@
 mod block;
-mod block_cache;
+pub mod block_cache;
 pub mod compression;
 mod compressed_fence;
 mod fastlane_fence;
@@ -9,13 +9,17 @@ mod lsf;
 mod standard_fence;
 mod storage;
 mod two_level_fence;
+pub mod lock_free_block_cache;
 
 use crate::types::{Key, Value};
 use std::io;
+use std::sync::{Arc, RwLock, OnceLock};
+use std::any::Any;
 
 use crate::bloom::{Bloom, create_bloom_for_level};
 pub use block::{Block, BlockConfig};
 pub use block_cache::{BlockCache, BlockCacheConfig, BlockKey, CacheStats};
+pub use lock_free_block_cache::{LockFreeBlockCache, LockFreeBlockCacheConfig, LockFreeCacheStatsSnapshot as LockFreeCacheStats};
 pub use compression::{
     CompressionStrategy, NoopCompression, BitPackCompression, 
     CompressionType, CompressionFactory, CompressionConfig,
@@ -36,6 +40,132 @@ pub use storage::{
     StorageFactory, StorageOptions, StorageStats
 };
 pub use two_level_fence::TwoLevelFencePointers;
+
+/// Common block key type for both cache implementations
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct CommonBlockKey {
+    pub run_id: RunId,
+    pub block_idx: usize,
+}
+
+impl From<BlockKey> for CommonBlockKey {
+    fn from(key: BlockKey) -> Self {
+        Self {
+            run_id: key.run_id,
+            block_idx: key.block_idx,
+        }
+    }
+}
+
+impl From<CommonBlockKey> for BlockKey {
+    fn from(key: CommonBlockKey) -> Self {
+        Self {
+            run_id: key.run_id,
+            block_idx: key.block_idx,
+        }
+    }
+}
+
+impl From<CommonBlockKey> for lock_free_block_cache::BlockKey {
+    fn from(key: CommonBlockKey) -> Self {
+        Self {
+            run_id: key.run_id,
+            block_idx: key.block_idx,
+        }
+    }
+}
+
+impl From<lock_free_block_cache::BlockKey> for CommonBlockKey {
+    fn from(key: lock_free_block_cache::BlockKey) -> Self {
+        Self {
+            run_id: key.run_id,
+            block_idx: key.block_idx,
+        }
+    }
+}
+
+/// Interface for block cache implementations
+pub trait BlockCacheInterface: Send + Sync {
+    fn get(&self, key: &CommonBlockKey) -> Option<Arc<Block>>;
+    fn insert(&self, key: CommonBlockKey, block: Block) -> Result<()>;
+    fn remove(&self, key: &CommonBlockKey) -> Result<()>;
+    fn invalidate_run(&self, run_id: RunId) -> Result<()>;
+    fn clear(&self) -> Result<()>;
+    fn as_any(&self) -> &dyn Any;
+}
+
+impl BlockCacheInterface for BlockCache {
+    fn get(&self, key: &CommonBlockKey) -> Option<Arc<Block>> {
+        let key: BlockKey = (*key).into();
+        self.get(&key)
+    }
+    
+    fn insert(&self, key: CommonBlockKey, block: Block) -> Result<()> {
+        let key: BlockKey = key.into();
+        self.insert(key, block)
+    }
+    
+    fn remove(&self, key: &CommonBlockKey) -> Result<()> {
+        let key: BlockKey = (*key).into();
+        self.remove(&key)
+    }
+    
+    fn invalidate_run(&self, run_id: RunId) -> Result<()> {
+        self.invalidate_run(run_id)
+    }
+    
+    fn clear(&self) -> Result<()> {
+        self.clear()
+    }
+    
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+
+impl BlockCacheInterface for LockFreeBlockCache {
+    fn get(&self, key: &CommonBlockKey) -> Option<Arc<Block>> {
+        let key: lock_free_block_cache::BlockKey = (*key).into();
+        self.get(&key)
+    }
+    
+    fn insert(&self, key: CommonBlockKey, block: Block) -> Result<()> {
+        let key: lock_free_block_cache::BlockKey = key.into();
+        self.insert(key, block)
+    }
+    
+    fn remove(&self, key: &CommonBlockKey) -> Result<()> {
+        let key: lock_free_block_cache::BlockKey = (*key).into();
+        self.remove(&key)
+    }
+    
+    fn invalidate_run(&self, run_id: RunId) -> Result<()> {
+        self.invalidate_run(run_id)
+    }
+    
+    fn clear(&self) -> Result<()> {
+        self.clear()
+    }
+    
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+
+// Global block cache
+static GLOBAL_BLOCK_CACHE: OnceLock<RwLock<Option<Arc<dyn BlockCacheInterface>>>> = OnceLock::new();
+
+/// Get a reference to the global block cache, or None if it hasn't been set
+pub fn get_global_block_cache() -> Option<Arc<dyn BlockCacheInterface>> {
+    let lock = GLOBAL_BLOCK_CACHE.get_or_init(|| RwLock::new(None));
+    lock.read().unwrap().clone()
+}
+
+/// Set the global block cache
+pub fn set_global_block_cache<T: BlockCacheInterface + 'static>(cache: Arc<T>) {
+    let lock = GLOBAL_BLOCK_CACHE.get_or_init(|| RwLock::new(None));
+    *lock.write().unwrap() = Some(cache);
+}
 
 #[derive(Debug)]
 #[allow(dead_code)]

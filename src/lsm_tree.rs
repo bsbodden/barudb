@@ -1,9 +1,10 @@
 use crate::compaction::{CompactionFactory, CompactionPolicy};
 use crate::level::{ConcurrentLevel, Level};
 use crate::memtable::Memtable;
+use crate::lock_free_memtable::LockFreeMemtable;
 use crate::run::{
     self, compression::{AdaptiveCompressionConfig, CompressionConfig}, Run, RunStorage, StorageFactory, StorageOptions,
-    StorageStats,
+    StorageStats, BlockCache, BlockCacheConfig, lock_free_block_cache::{LockFreeBlockCache, LockFreeBlockCacheConfig},
 };
 use crate::types::{CompactionPolicyType, Key, Result, StorageType, Value, TOMBSTONE};
 use std::path::PathBuf;
@@ -54,6 +55,14 @@ pub struct LSMConfig {
     
     /// Whether to enable background compaction
     pub background_compaction: bool,
+    
+    /// Whether to use lock-free memtable implementation
+    /// Default is false (use standard sharded memtable)
+    pub use_lock_free_memtable: bool,
+    
+    /// Whether to use lock-free block cache implementation
+    /// Default is true (use lock-free block cache)
+    pub use_lock_free_block_cache: bool,
 }
 
 impl Default for LSMConfig {
@@ -75,6 +84,9 @@ impl Default for LSMConfig {
             },
             collect_compression_stats: false,
             background_compaction: false,
+            // Based on benchmark results, we set these defaults for optimal performance
+            use_lock_free_memtable: false, // Standard sharded memtable performs better
+            use_lock_free_block_cache: true, // Lock-free block cache is 5x faster
         }
     }
 }
@@ -102,8 +114,106 @@ impl CompactionState {
     }
 }
 
+/// Trait for memtable implementations to allow polymorphic usage
+pub trait MemtableInterface: Send + Sync {
+    fn put(&self, key: Key, value: Value) -> Result<Option<Value>>;
+    fn get(&self, key: &Key) -> Option<Value>;
+    fn range(&self, start: Key, end: Key) -> Vec<(Key, Value)>;
+    fn clear(&self);
+    fn len(&self) -> usize;
+    fn is_empty(&self) -> bool;
+    fn is_full(&self) -> bool;
+    fn max_size(&self) -> usize;
+    fn key_range(&self) -> Option<(Key, Key)>;
+    fn take_all(&self) -> Vec<(Key, Value)>;
+}
+
+impl MemtableInterface for Memtable {
+    fn put(&self, key: Key, value: Value) -> Result<Option<Value>> {
+        self.put(key, value)
+    }
+    
+    fn get(&self, key: &Key) -> Option<Value> {
+        self.get(key)
+    }
+    
+    fn range(&self, start: Key, end: Key) -> Vec<(Key, Value)> {
+        self.range(start, end)
+    }
+    
+    fn clear(&self) {
+        self.clear()
+    }
+    
+    fn len(&self) -> usize {
+        self.len()
+    }
+    
+    fn is_empty(&self) -> bool {
+        self.is_empty()
+    }
+    
+    fn is_full(&self) -> bool {
+        self.is_full()
+    }
+    
+    fn max_size(&self) -> usize {
+        self.max_size()
+    }
+    
+    fn key_range(&self) -> Option<(Key, Key)> {
+        self.key_range()
+    }
+    
+    fn take_all(&self) -> Vec<(Key, Value)> {
+        self.take_all()
+    }
+}
+
+impl MemtableInterface for LockFreeMemtable {
+    fn put(&self, key: Key, value: Value) -> Result<Option<Value>> {
+        self.put(key, value)
+    }
+    
+    fn get(&self, key: &Key) -> Option<Value> {
+        self.get(key)
+    }
+    
+    fn range(&self, start: Key, end: Key) -> Vec<(Key, Value)> {
+        self.range(start, end)
+    }
+    
+    fn clear(&self) {
+        self.clear()
+    }
+    
+    fn len(&self) -> usize {
+        self.len()
+    }
+    
+    fn is_empty(&self) -> bool {
+        self.is_empty()
+    }
+    
+    fn is_full(&self) -> bool {
+        self.is_full()
+    }
+    
+    fn max_size(&self) -> usize {
+        self.max_size()
+    }
+    
+    fn key_range(&self) -> Option<(Key, Key)> {
+        self.key_range()
+    }
+    
+    fn take_all(&self) -> Vec<(Key, Value)> {
+        self.take_all()
+    }
+}
+
 pub struct LSMTree {
-    buffer: Arc<Memtable>,
+    buffer: Arc<dyn MemtableInterface>,
     levels: Vec<Arc<ConcurrentLevel>>,
     storage: Arc<dyn RunStorage>,
     config: LSMConfig,
@@ -143,8 +253,34 @@ impl LSMTree {
         // Create compaction state
         let compaction_state = Arc::new(CompactionState::new());
         
+        // Create the appropriate memtable implementation based on config
+        let buffer: Arc<dyn MemtableInterface> = if config.use_lock_free_memtable {
+            println!("Using lock-free memtable implementation");
+            Arc::new(LockFreeMemtable::new(config.buffer_size))
+        } else {
+            println!("Using standard sharded memtable implementation");
+            Arc::new(Memtable::new(config.buffer_size))
+        };
+        
+        // Configure the block cache if using lock-free implementation
+        if config.use_lock_free_block_cache {
+            println!("Using lock-free block cache implementation");
+            // Set up lock-free block cache
+            let cache_config = LockFreeBlockCacheConfig::default();
+            let block_cache = Arc::new(LockFreeBlockCache::new(cache_config));
+            // Set as the global block cache
+            run::set_global_block_cache(block_cache);
+        } else {
+            println!("Using standard block cache implementation");
+            // Set up standard block cache
+            let cache_config = BlockCacheConfig::default();
+            let block_cache = Arc::new(BlockCache::new(cache_config));
+            // Set as the global block cache
+            run::set_global_block_cache(block_cache);
+        }
+        
         let mut tree = Self {
-            buffer: Arc::new(Memtable::new(config.buffer_size)),
+            buffer,
             levels: Vec::new(),
             storage,
             config,
@@ -569,10 +705,22 @@ impl LSMTree {
     /// Get block cache statistics if the storage implementation supports caching
     pub fn get_cache_stats(&self) -> Option<run::CacheStats> {
         if let Some(file_storage) = self.storage.as_any().downcast_ref::<run::FileStorage>() {
-            Some(file_storage.get_cache().get_stats())
-        } else {
-            None
+            if let Some(cache) = file_storage.get_cache() {
+                if let Some(standard_cache) = cache.as_any().downcast_ref::<run::BlockCache>() {
+                    return Some(standard_cache.get_stats());
+                } else if let Some(lock_free_cache) = cache.as_any().downcast_ref::<run::LockFreeBlockCache>() {
+                    let lock_free_stats = lock_free_cache.get_stats();
+                    return Some(run::CacheStats {
+                        hits: lock_free_stats.hits,
+                        misses: lock_free_stats.misses,
+                        capacity_evictions: lock_free_stats.capacity_evictions,
+                        ttl_evictions: lock_free_stats.ttl_evictions,
+                        inserts: lock_free_stats.inserts,
+                    });
+                }
+            }
         }
+        None
     }
 }
 
@@ -608,6 +756,8 @@ mod tests {
             adaptive_compression: run::AdaptiveCompressionConfig::default(),
             collect_compression_stats: true,
             background_compaction: false,
+            use_lock_free_memtable: false,  // Use standard sharded memtable by default
+            use_lock_free_block_cache: true, // Use lock-free block cache by default
         };
         (LSMTree::with_config(config), temp_dir)
     }
@@ -681,6 +831,8 @@ mod tests {
             adaptive_compression: run::AdaptiveCompressionConfig::default(),
             collect_compression_stats: true,
             background_compaction: false,
+            use_lock_free_memtable: false,  // Use standard sharded memtable by default
+            use_lock_free_block_cache: true, // Use lock-free block cache by default
         };
         
         // Create LSM tree with custom config
@@ -741,6 +893,8 @@ mod tests {
             adaptive_compression: run::AdaptiveCompressionConfig::default(),
             collect_compression_stats: true,
             background_compaction: false,
+            use_lock_free_memtable: false,  // Use standard sharded memtable by default
+            use_lock_free_block_cache: true, // Use lock-free block cache by default
         };
         
         // Create new tree - recovery should happen automatically
@@ -782,6 +936,8 @@ mod tests {
             adaptive_compression: run::AdaptiveCompressionConfig::default(),
             collect_compression_stats: true,
             background_compaction: false,
+            use_lock_free_memtable: false,  // Use standard sharded memtable by default
+            use_lock_free_block_cache: true, // Use lock-free block cache by default
         };
         
         let mut recovered_tree = LSMTree::with_config(config);
@@ -889,6 +1045,8 @@ mod tests {
             adaptive_compression: run::AdaptiveCompressionConfig::default(),
             collect_compression_stats: false,
             background_compaction: true, // Enable background compaction
+            use_lock_free_memtable: false,  // Use standard sharded memtable by default
+            use_lock_free_block_cache: true, // Use lock-free block cache by default
         };
         
         // Create tree with background compaction

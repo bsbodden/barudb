@@ -348,6 +348,9 @@ fn main() -> io::Result<()> {
         adaptive_compression: lsm_tree::run::AdaptiveCompressionConfig::default(),
         collect_compression_stats: true,
         background_compaction: false,
+        // Default values for lock-free implementations
+        use_lock_free_memtable: false,  // Use standard sharded memtable by default
+        use_lock_free_block_cache: true, // Use lock-free block cache by default
     };
     
     println!("Starting server with configuration:");

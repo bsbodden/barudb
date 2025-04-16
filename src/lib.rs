@@ -3,6 +3,7 @@ pub mod compaction;
 pub mod level;
 pub mod lsm_tree;
 pub mod memtable;
+pub mod lock_free_memtable;
 pub mod run;
 pub mod test_helpers;
 pub mod types;

@@ -21,6 +21,8 @@ fn create_test_tree(run_threshold: usize, policy_type: CompactionPolicyType) -> 
         adaptive_compression: lsm_tree::run::AdaptiveCompressionConfig::default(),
         collect_compression_stats: true,
         background_compaction: false,
+        use_lock_free_memtable: false,  // Use standard sharded memtable by default
+        use_lock_free_block_cache: true, // Use lock-free block cache by default
     };
     (LSMTree::with_config(config), temp_dir)
 }
@@ -204,6 +206,8 @@ fn test_recovery_with_partial_compaction() {
         adaptive_compression: lsm_tree::run::AdaptiveCompressionConfig::default(),
         collect_compression_stats: true,
         background_compaction: false,
+        use_lock_free_memtable: false,  // Use standard sharded memtable by default
+        use_lock_free_block_cache: true, // Use lock-free block cache by default
     };
     
     // Create tree, add data, and force compaction

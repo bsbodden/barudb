@@ -22,6 +22,8 @@ fn test_lsm_tree_with_compaction_policy() {
         adaptive_compression: lsm_tree::run::AdaptiveCompressionConfig::default(),
         collect_compression_stats: true,
         background_compaction: false,
+        use_lock_free_memtable: false,  // Use standard sharded memtable by default
+        use_lock_free_block_cache: true, // Use lock-free block cache by default
     };
     
     let mut tree = LSMTree::with_config(config);

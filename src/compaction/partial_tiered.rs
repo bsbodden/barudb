@@ -308,7 +308,9 @@ impl CompactionPolicy for PartialTieredCompactionPolicy {
                 
                 // Also invalidate any cache entries for this run since it's being deleted
                 if let Some(file_storage) = storage.as_any().downcast_ref::<run::FileStorage>() {
-                    let _ = file_storage.get_cache().invalidate_run(id);
+                    if let Some(cache) = file_storage.get_cache() {
+                        let _ = cache.invalidate_run(id);
+                    }
                 }
             }
         }

@@ -65,7 +65,9 @@ fn create_lsm_config(
         compression: compression_config,
         adaptive_compression: adaptive_config,
         collect_compression_stats: false, // Don't collect stats for tests
-        background_compaction: false, // Disable background compaction for deterministic behavior
+        background_compaction: false,
+        use_lock_free_memtable: false,  // Use standard sharded memtable by default
+        use_lock_free_block_cache: true, // Use lock-free block cache by default // Disable background compaction for deterministic behavior
     }
 }
 

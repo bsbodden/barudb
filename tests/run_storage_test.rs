@@ -420,7 +420,11 @@ fn test_create_if_missing_false() {
 }
 
 #[test]
+#[serial_test::serial] // Ensure this test runs in isolation
 fn test_block_cache() {
+    use std::sync::Arc;
+    use lsm_tree::run::{BlockCache, set_global_block_cache};
+    
     // Create a temporary directory for the test
     let temp_dir = tempdir().unwrap();
     
@@ -438,8 +442,12 @@ fn test_block_cache() {
         sync_writes: false,
     };
     
-    // Create storage with custom cache
-    let storage = FileStorage::with_cache_config(options, cache_config).unwrap();
+    // Create a global block cache for this test
+    let block_cache = Arc::new(BlockCache::new(cache_config));
+    set_global_block_cache(block_cache);
+    
+    // Create storage that will use the global cache
+    let storage = FileStorage::new(options).unwrap();
     
     // Create and store a run
     let run = Run::new(vec![(1, 100), (2, 200), (3, 300)]);
@@ -452,9 +460,21 @@ fn test_block_cache() {
     assert_eq!(block1.get(&1), Some(100));
     
     // Get cache stats - should show 1 miss and 0 hits since this was the first load
-    let stats = storage.get_cache().get_stats();
-    assert_eq!(stats.misses, 1);
-    assert_eq!(stats.hits, 0);
+    if let Some(cache) = storage.get_cache() {
+        if let Some(standard_cache) = cache.as_any().downcast_ref::<lsm_tree::run::BlockCache>() {
+            let stats = standard_cache.get_stats();
+            assert_eq!(stats.misses, 1);
+            assert_eq!(stats.hits, 0);
+        } else if let Some(lock_free_cache) = cache.as_any().downcast_ref::<lsm_tree::run::LockFreeBlockCache>() {
+            let stats = lock_free_cache.get_stats();
+            assert_eq!(stats.misses, 1);
+            assert_eq!(stats.hits, 0);
+        } else {
+            panic!("Unknown cache implementation");
+        }
+    } else {
+        panic!("No cache available");
+    }
     
     // Load the same block again - should be cached now
     let block2 = storage.load_block(run_id, 0).unwrap();
@@ -463,7 +483,19 @@ fn test_block_cache() {
     assert_eq!(block2.get(&1), Some(100));
     
     // Get cache stats - should show 1 miss and 1 hit now
-    let stats = storage.get_cache().get_stats();
-    assert_eq!(stats.misses, 1);
-    assert_eq!(stats.hits, 1);
+    if let Some(cache) = storage.get_cache() {
+        if let Some(standard_cache) = cache.as_any().downcast_ref::<lsm_tree::run::BlockCache>() {
+            let stats = standard_cache.get_stats();
+            assert_eq!(stats.misses, 1);
+            assert_eq!(stats.hits, 1);
+        } else if let Some(lock_free_cache) = cache.as_any().downcast_ref::<lsm_tree::run::LockFreeBlockCache>() {
+            let stats = lock_free_cache.get_stats();
+            assert_eq!(stats.misses, 1);
+            assert_eq!(stats.hits, 1);
+        } else {
+            panic!("Unknown cache implementation");
+        }
+    } else {
+        panic!("No cache available");
+    }
 }

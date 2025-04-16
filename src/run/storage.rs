@@ -1,4 +1,4 @@
-use crate::run::{Block, BlockCache, BlockCacheConfig, BlockKey, FencePointers, Result, Run};
+use crate::run::{Block, BlockCacheConfig, FencePointers, Result, Run};
 use crate::types::{Key, StorageType};
 use std::any::Any;
 use std::path::PathBuf;
@@ -10,7 +10,7 @@ pub trait AsAny {
 }
 
 /// Unique identifier for a stored run
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct RunId {
     pub level: usize,
     pub sequence: u64,
@@ -199,7 +199,6 @@ impl StorageFactory {
 pub struct FileStorage {
     base_path: PathBuf,
     options: StorageOptions,
-    block_cache: Arc<BlockCache>,
 }
 
 impl AsAny for FileStorage {
@@ -210,17 +209,9 @@ impl AsAny for FileStorage {
 
 impl FileStorage {
     pub fn new(options: StorageOptions) -> Result<Self> {
-        // Create a minimal block cache (disabled for tests)
-        let cache_config = BlockCacheConfig {
-            max_capacity: 10, // Small cache for testing
-            ..Default::default()
-        };
-        let block_cache = Arc::new(BlockCache::new(cache_config));
-        
         let storage = Self {
             base_path: options.base_path.clone(),
             options,
-            block_cache,
         };
 
         // Ensure the base directory exists
@@ -230,13 +221,11 @@ impl FileStorage {
     }
     
     /// Create a new storage with custom cache configuration
-    pub fn with_cache_config(options: StorageOptions, cache_config: BlockCacheConfig) -> Result<Self> {
-        let block_cache = Arc::new(BlockCache::new(cache_config));
-        
+    pub fn with_cache_config(options: StorageOptions, _cache_config: BlockCacheConfig) -> Result<Self> {
+        // Note: Custom cache config is now ignored as we use the global block cache
         let storage = Self {
             base_path: options.base_path.clone(),
             options,
-            block_cache,
         };
 
         // Ensure the base directory exists
@@ -245,9 +234,9 @@ impl FileStorage {
         Ok(storage)
     }
     
-    /// Get a reference to the block cache
-    pub fn get_cache(&self) -> &Arc<BlockCache> {
-        &self.block_cache
+    /// Get the global block cache if available
+    pub fn get_cache(&self) -> Option<Arc<dyn super::BlockCacheInterface>> {
+        super::get_global_block_cache()
     }
 
     fn init_directories(&self) -> Result<()> {
@@ -650,16 +639,18 @@ impl RunStorage for FileStorage {
     
     // Override the default implementation for efficient block loading with caching
     fn load_block(&self, run_id: RunId, block_idx: usize) -> Result<Block> {
-        // Create a block cache key
-        let cache_key = BlockKey {
+        // Create a common block cache key
+        let cache_key = super::CommonBlockKey {
             run_id,
             block_idx,
         };
         
-        // Try to get from cache first
-        if let Some(cached_block) = self.block_cache.get(&cache_key) {
-            // Return a clone of the cached block
-            return Ok((*cached_block).clone());
+        // Try to get from global cache first
+        if let Some(cache) = self.get_cache() {
+            if let Some(cached_block) = cache.get(&cache_key) {
+                // Return a clone of the cached block
+                return Ok((*cached_block).clone());
+            }
         }
         
         // Check if the run exists
@@ -715,8 +706,10 @@ impl RunStorage for FileStorage {
             let compression = Box::new(super::NoopCompression);
             let block = super::Block::deserialize(&block_data, &*compression)?;
             
-            // Cache the block for future use
-            self.block_cache.insert(cache_key, block.clone())?;
+            // Cache the block for future use if global cache is available
+            if let Some(cache) = self.get_cache() {
+                let _ = cache.insert(cache_key, block.clone());
+            }
             
             return Ok(block);
         }
@@ -728,8 +721,10 @@ impl RunStorage for FileStorage {
         if block_idx < run.blocks.len() {
             let block = run.blocks[block_idx].clone();
             
-            // Cache the block for future use
-            self.block_cache.insert(cache_key, block.clone())?;
+            // Cache the block for future use if global cache is available
+            if let Some(cache) = self.get_cache() {
+                let _ = cache.insert(cache_key, block.clone());
+            }
             
             Ok(block)
         } else {
@@ -776,12 +771,14 @@ impl RunStorage for FileStorage {
                 }
                 
                 // Check cache
-                let cache_key = BlockKey { run_id, block_idx };
-                if let Some(cached_block) = self.block_cache.get(&cache_key) {
-                    blocks[result_idx] = Some((*cached_block).clone());
-                } else {
-                    missing_indices.push((result_idx, block_idx));
+                let cache_key = super::CommonBlockKey { run_id, block_idx };
+                if let Some(cache) = self.get_cache() {
+                    if let Some(cached_block) = cache.get(&cache_key) {
+                        blocks[result_idx] = Some((*cached_block).clone());
+                        continue;
+                    }
                 }
+                missing_indices.push((result_idx, block_idx));
             }
             
             // If everything was cached, return early
@@ -830,12 +827,14 @@ impl RunStorage for FileStorage {
                 // Deserialize the block
                 match super::Block::deserialize(&block_data, &*compression) {
                     Ok(block) => {
-                        // Cache the block
-                        let cache_key = BlockKey { run_id, block_idx };
-                        if let Err(e) = self.block_cache.insert(cache_key, block.clone()) {
-                            // Log error but continue
-                            if std::env::var("RUST_LOG").map(|v| v == "debug").unwrap_or(false) {
-                                println!("Error inserting block into cache: {:?}", e);
+                        // Cache the block if global cache is available
+                        if let Some(cache) = self.get_cache() {
+                            let cache_key = super::CommonBlockKey { run_id, block_idx };
+                            if let Err(e) = cache.insert(cache_key, block.clone()) {
+                                // Log error but continue
+                                if std::env::var("RUST_LOG").map(|v| v == "debug").unwrap_or(false) {
+                                    println!("Error inserting block into cache: {:?}", e);
+                                }
                             }
                         }
                         
@@ -879,12 +878,14 @@ impl RunStorage for FileStorage {
                 if idx < run.blocks.len() {
                     let block = run.blocks[idx].clone();
                     
-                    // Cache the block
-                    let cache_key = BlockKey { run_id, block_idx: idx };
-                    if let Err(e) = self.block_cache.insert(cache_key, block.clone()) {
-                        // Log error but continue
-                        if std::env::var("RUST_LOG").map(|v| v == "debug").unwrap_or(false) {
-                            println!("Error inserting block into cache: {:?}", e);
+                    // Cache the block if global cache is available
+                    if let Some(cache) = self.get_cache() {
+                        let cache_key = super::CommonBlockKey { run_id, block_idx: idx };
+                        if let Err(e) = cache.insert(cache_key, block.clone()) {
+                            // Log error but continue
+                            if std::env::var("RUST_LOG").map(|v| v == "debug").unwrap_or(false) {
+                                println!("Error inserting block into cache: {:?}", e);
+                            }
                         }
                     }
                     
@@ -1110,6 +1111,7 @@ mod json_impl {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::run::BlockCache;
     use tempfile::tempdir;
 
     #[test]
@@ -1200,7 +1202,11 @@ mod tests {
     }
     
     #[test]
+    #[serial_test::serial] // Ensure this test runs in isolation
     fn test_direct_block_loading() {
+        // Clear any global state that might interfere with the test
+        use crate::run::set_global_block_cache;
+        
         let temp_dir = tempdir().unwrap();
         let options = StorageOptions {
             base_path: temp_dir.path().to_path_buf(),
@@ -1209,6 +1215,17 @@ mod tests {
             sync_writes: false,
         };
 
+        // Set up a global block cache specifically for this test
+        let cache_config = BlockCacheConfig {
+            max_capacity: 10,  // Ensure capacity is large enough
+            ttl: std::time::Duration::from_secs(3600), // Long TTL
+            ..Default::default()
+        };
+        let block_cache = Arc::new(BlockCache::new(cache_config));
+        // Force reset of the global cache
+        set_global_block_cache(block_cache);
+        
+        // Create storage without a specific cache (will use global)
         let storage = FileStorage::new(options).unwrap();
 
         // Create a run with multiple blocks
@@ -1254,7 +1271,12 @@ mod tests {
     }
     
     #[test]
+    #[serial_test::serial] // Ensure this test runs in isolation
     fn test_batch_block_loading() {
+        // Clear any global state that might interfere with the test
+        use crate::run::set_global_block_cache;
+        set_global_block_cache(Arc::new(BlockCache::new(BlockCacheConfig::default())));
+        
         let temp_dir = tempdir().unwrap();
         let options = StorageOptions {
             base_path: temp_dir.path().to_path_buf(),
@@ -1263,6 +1285,16 @@ mod tests {
             sync_writes: false,
         };
 
+        // Set up a global block cache specifically for this test with more capacity
+        let cache_config = BlockCacheConfig {
+            max_capacity: 20, // Ensure capacity is large enough
+            ttl: std::time::Duration::from_secs(3600), // Long TTL
+            ..Default::default()
+        };
+        let block_cache = Arc::new(BlockCache::new(cache_config));
+        set_global_block_cache(block_cache);
+        
+        // Create storage without a specific cache (will use global)
         let storage = FileStorage::new(options).unwrap();
 
         // Create a run with multiple blocks
