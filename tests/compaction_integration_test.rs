@@ -25,6 +25,7 @@ fn create_test_tree(run_threshold: usize, policy_type: CompactionPolicyType) -> 
         compression: compression_config,
         adaptive_compression: adaptive_config,
         collect_compression_stats: false, // Don't collect stats for tests
+        background_compaction: false,
     };
     (LSMTree::with_config(config), temp_dir)
 }
@@ -197,6 +198,7 @@ fn test_recovery_with_compaction() {
         compression: config,
         adaptive_compression: adaptive_config,
         collect_compression_stats: false,
+        background_compaction: false,
     };
     
     let mut tree = LSMTree::with_config(config);
@@ -234,6 +236,7 @@ fn test_recovery_with_compaction() {
         compression: config,
         adaptive_compression: adaptive_config,
         collect_compression_stats: false,
+        background_compaction: false,
     };
     
     let recovered_tree = LSMTree::with_config(config);
@@ -270,6 +273,7 @@ fn test_recovery_with_leveled_compaction() {
         compression: config,
         adaptive_compression: adaptive_config,
         collect_compression_stats: false,
+        background_compaction: false,
     };
     
     let mut tree = LSMTree::with_config(config);
@@ -313,6 +317,7 @@ fn test_recovery_with_leveled_compaction() {
         compression: compression_config,
         adaptive_compression: adaptive_config,
         collect_compression_stats: false,
+        background_compaction: false,
     };
     
     let recovered_tree = LSMTree::with_config(config);
@@ -429,6 +434,7 @@ fn test_recovery_with_lazy_leveled_compaction() {
         compression: config,
         adaptive_compression: adaptive_config,
         collect_compression_stats: false,
+        background_compaction: false,
     };
     
     let mut tree = LSMTree::with_config(config);
@@ -472,6 +478,7 @@ fn test_recovery_with_lazy_leveled_compaction() {
         compression: compression_config,
         adaptive_compression: adaptive_config,
         collect_compression_stats: false,
+        background_compaction: false,
     };
     
     let recovered_tree = LSMTree::with_config(config);

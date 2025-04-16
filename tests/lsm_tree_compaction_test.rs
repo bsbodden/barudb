@@ -21,6 +21,7 @@ fn test_lsm_tree_with_compaction_policy() {
         compression: lsm_tree::run::CompressionConfig::default(),
         adaptive_compression: lsm_tree::run::AdaptiveCompressionConfig::default(),
         collect_compression_stats: true,
+        background_compaction: false,
     };
     
     let mut tree = LSMTree::with_config(config);

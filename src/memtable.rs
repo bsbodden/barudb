@@ -5,48 +5,38 @@ use std::ops::Bound;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::RwLock;
 
+/// Number of shards for the memtable
+/// This value is chosen as a power of 2 for efficient modulo operations
+const SHARD_COUNT: usize = 16;
+
 #[derive(Debug, Default)]
 struct KeyRange {
     min_key: Option<Key>,
     max_key: Option<Key>,
 }
 
-pub struct Memtable {
+/// A single shard of the memtable
+struct MemtableShard {
     data: RwLock<BTreeMap<Key, Value>>,
-    current_size: AtomicUsize,
-    max_size: usize,
     key_range: RwLock<KeyRange>,
-    entry_size: usize,
 }
 
-impl Memtable {
-    pub fn new(num_pages: usize) -> Self {
-        let page_size = page_size::get();
-        let entry_size = mem::size_of::<(Key, Value)>();
-        let max_pairs = (num_pages * page_size) / entry_size;
-
+impl MemtableShard {
+    fn new() -> Self {
         Self {
             data: RwLock::new(BTreeMap::new()),
-            current_size: AtomicUsize::new(0),
-            max_size: max_pairs,
             key_range: RwLock::new(KeyRange::default()),
-            entry_size,
         }
     }
 
-    pub fn put(&self, key: Key, value: Value) -> Result<Option<Value>> {
-        // Check if this is an update
-        let is_update = {
+    fn put(&self, key: Key, value: Value) -> Option<Value> {
+        // Update key range if this is a new key
+        let is_new_key = {
             let data = self.data.read().unwrap();
-            data.contains_key(&key)
+            !data.contains_key(&key)
         };
 
-        if !is_update && self.current_size.load(Ordering::Acquire) >= self.max_size {
-            return Err(Error::BufferFull);
-        }
-
-        // Update key range if this is a new key
-        if !is_update {
+        if is_new_key {
             let mut key_range = self.key_range.write().unwrap();
             key_range.min_key = Some(key_range.min_key.map_or(key, |min| std::cmp::min(min, key)));
             key_range.max_key = Some(key_range.max_key.map_or(key, |max| std::cmp::max(max, key)));
@@ -54,17 +44,10 @@ impl Memtable {
 
         // Insert the new value
         let mut data = self.data.write().unwrap();
-        let previous = data.insert(key, value);
-
-        // Update size only if this is a new key
-        if previous.is_none() {
-            self.current_size.fetch_add(1, Ordering::Release);
-        }
-
-        Ok(previous)
+        data.insert(key, value)
     }
 
-    pub fn get(&self, key: &Key) -> Option<Value> {
+    fn get(&self, key: &Key) -> Option<Value> {
         // Quick range check
         {
             let key_range = self.key_range.read().unwrap();
@@ -84,7 +67,7 @@ impl Memtable {
         data.get(key).copied()
     }
 
-    pub fn range(&self, start: Key, end: Key) -> Vec<(Key, Value)> {
+    fn range(&self, start: Key, end: Key) -> Vec<(Key, Value)> {
         if start >= end {
             return Vec::new();
         }
@@ -95,13 +78,123 @@ impl Memtable {
             .collect()
     }
 
-    pub fn clear(&self) {
+    fn clear(&self) {
         {
             let mut data = self.data.write().unwrap();
             data.clear();
         }
-        self.current_size.store(0, Ordering::Release);
         *self.key_range.write().unwrap() = KeyRange::default();
+    }
+
+    #[allow(dead_code)]
+    fn len(&self) -> usize {
+        self.data.read().unwrap().len()
+    }
+
+    #[allow(dead_code)]
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    fn key_range(&self) -> Option<(Key, Key)> {
+        let key_range = self.key_range.read().unwrap();
+        match (key_range.min_key, key_range.max_key) {
+            (Some(min), Some(max)) => Some((min, max)),
+            _ => None,
+        }
+    }
+
+    fn take_all(&self) -> Vec<(Key, Value)> {
+        let data = self.data.read().unwrap();
+        data.iter().map(|(&k, &v)| (k, v)).collect()
+    }
+}
+
+pub struct Memtable {
+    shards: Vec<MemtableShard>,
+    current_size: AtomicUsize,
+    max_size: usize,
+    entry_size: usize,
+}
+
+impl Memtable {
+    pub fn new(num_pages: usize) -> Self {
+        let page_size = page_size::get();
+        let entry_size = mem::size_of::<(Key, Value)>();
+        let max_pairs = (num_pages * page_size) / entry_size;
+
+        // Create shards
+        let mut shards = Vec::with_capacity(SHARD_COUNT);
+        for _ in 0..SHARD_COUNT {
+            shards.push(MemtableShard::new());
+        }
+
+        Self {
+            shards,
+            current_size: AtomicUsize::new(0),
+            max_size: max_pairs,
+            entry_size,
+        }
+    }
+
+    /// Determine which shard a key belongs to
+    #[inline]
+    fn shard_for_key(&self, key: &Key) -> &MemtableShard {
+        // Simple hash function: use the key modulo shard count
+        // Since SHARD_COUNT is a power of 2, we can use a bitwise AND for faster modulo
+        let shard_index = (key.wrapping_abs() as usize) & (SHARD_COUNT - 1);
+        &self.shards[shard_index]
+    }
+
+    pub fn put(&self, key: Key, value: Value) -> Result<Option<Value>> {
+        // Check if this is an update
+        let shard = self.shard_for_key(&key);
+        let is_update = {
+            let data = shard.data.read().unwrap();
+            data.contains_key(&key)
+        };
+
+        if !is_update && self.current_size.load(Ordering::Acquire) >= self.max_size {
+            return Err(Error::BufferFull);
+        }
+
+        // Insert the value into the appropriate shard
+        let previous = shard.put(key, value);
+
+        // Update size only if this is a new key
+        if previous.is_none() {
+            self.current_size.fetch_add(1, Ordering::Release);
+        }
+
+        Ok(previous)
+    }
+
+    pub fn get(&self, key: &Key) -> Option<Value> {
+        // Query the appropriate shard
+        self.shard_for_key(key).get(key)
+    }
+
+    pub fn range(&self, start: Key, end: Key) -> Vec<(Key, Value)> {
+        if start >= end {
+            return Vec::new();
+        }
+
+        // Collect results from all shards (since a range can span multiple shards)
+        let mut results = Vec::new();
+        for shard in &self.shards {
+            results.extend(shard.range(start, end));
+        }
+
+        // Sort results by key since they came from different shards
+        results.sort_by_key(|&(k, _)| k);
+        results
+    }
+
+    pub fn clear(&self) {
+        for shard in &self.shards {
+            shard.clear();
+        }
+        self.current_size.store(0, Ordering::Release);
     }
 
     pub fn len(&self) -> usize {
@@ -131,21 +224,37 @@ impl Memtable {
     }
 
     pub fn key_range(&self) -> Option<(Key, Key)> {
-        let key_range = self.key_range.read().unwrap();
-        match (key_range.min_key, key_range.max_key) {
+        // Compute the overall key range by merging ranges from all shards
+        let mut min_key = None;
+        let mut max_key = None;
+
+        for shard in &self.shards {
+            if let Some((shard_min, shard_max)) = shard.key_range() {
+                min_key = Some(min_key.map_or(shard_min, |min| std::cmp::min(min, shard_min)));
+                max_key = Some(max_key.map_or(shard_max, |max| std::cmp::max(max, shard_max)));
+            }
+        }
+
+        match (min_key, max_key) {
             (Some(min), Some(max)) => Some((min, max)),
             _ => None,
         }
     }
 
     pub fn take_all(&self) -> Vec<(Key, Value)> {
-        let data = self.data.read().unwrap();
-        data.iter().map(|(&k, &v)| (k, v)).collect()
+        // Collect data from all shards
+        let mut result = Vec::new();
+        for shard in &self.shards {
+            result.extend(shard.take_all());
+        }
+
+        // Return sorted by key
+        result.sort_by_key(|&(k, _)| k);
+        result
     }
 
     pub fn iter(&self) -> Vec<(Key, Value)> {
-        let data = self.data.read().unwrap();
-        data.iter().map(|(&k, &v)| (k, v)).collect()
+        self.take_all()
     }
 }
 
@@ -216,7 +325,14 @@ mod tests {
         }
 
         assert_eq!(table.range(-1, 1).len(), 1);
-        assert_eq!(table.range(0, 5).len(), 5);
+        
+        // Sort check: range queries should return sorted results
+        let range_results = table.range(0, 5);
+        assert_eq!(range_results.len(), 5);
+        for i in 0..4 {
+            assert!(range_results[i].0 < range_results[i+1].0);
+        }
+        
         assert!(table.range(100, 200).is_empty());
 
         let range = table.range(8, 15);
@@ -471,5 +587,82 @@ mod tests {
 
         t1.join().unwrap();
         t2.join().unwrap();
+    }
+    
+    #[test]
+    fn test_shard_distribution() {
+        let table = Memtable::new(10); // Use larger size to avoid BufferFull
+        
+        // Add keys to test distribution, up to buffer capacity
+        let mut count = 0;
+        for i in 0..1000 {
+            if table.put(i, i).is_err() {
+                // Stop if buffer becomes full
+                break;
+            }
+            count += 1;
+        }
+        
+        // Skip test if we couldn't add enough items for a meaningful test
+        if count < SHARD_COUNT * 2 {
+            println!("Skipping test_shard_distribution - not enough data points ({} added)", count);
+            return;
+        }
+        
+        // Check that data is distributed across shards
+        let mut non_empty_shards = 0;
+        for shard in &table.shards {
+            if !shard.is_empty() {
+                non_empty_shards += 1;
+            }
+        }
+        
+        // At least half of the shards should have data
+        assert!(non_empty_shards >= SHARD_COUNT / 2);
+    }
+    
+    #[test]
+    fn test_concurrent_shard_access() {
+        // Use a much larger memtable for this test
+        let table = Arc::new(Memtable::new(1000));
+        
+        // Use fewer threads and keys per thread to avoid buffer full errors
+        let num_threads = 10;
+        let keys_per_thread = 10;
+        
+        let handles: Vec<_> = (0..num_threads).map(|i| {
+            let table_clone = table.clone();
+            thread::spawn(move || {
+                // Each thread inserts a different set of keys
+                // This ensures operations hit different shards
+                let mut inserted = 0;
+                for j in 0..keys_per_thread {
+                    let key = i * 1000 + j;
+                    match table_clone.put(key, key * 10) {
+                        Ok(_) => inserted += 1,
+                        Err(Error::BufferFull) => break, // Stop if buffer full
+                        Err(e) => panic!("Unexpected error: {:?}", e),
+                    }
+                }
+                
+                // Then read back the values that were inserted
+                for j in 0..inserted {
+                    let key = i * 1000 + j;
+                    assert_eq!(table_clone.get(&key), Some(key * 10));
+                }
+                
+                // Return how many we inserted
+                inserted
+            })
+        }).collect();
+        
+        // Wait for all threads to complete and count total insertions
+        let mut total_inserted = 0;
+        for handle in handles {
+            total_inserted += handle.join().unwrap();
+        }
+        
+        // Verify total size matches what threads reported
+        assert_eq!(table.len(), total_inserted as usize);
     }
 }

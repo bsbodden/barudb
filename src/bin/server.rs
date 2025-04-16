@@ -347,6 +347,7 @@ fn main() -> io::Result<()> {
         compression: lsm_tree::run::CompressionConfig::default(),
         adaptive_compression: lsm_tree::run::AdaptiveCompressionConfig::default(),
         collect_compression_stats: true,
+        background_compaction: false,
     };
     
     println!("Starting server with configuration:");
