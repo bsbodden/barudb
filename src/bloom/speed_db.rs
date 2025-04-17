@@ -1,22 +1,46 @@
+use std::mem::size_of;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+/// A direct port of SpeedDB's DynamicBloom filter to Rust
+/// 
+/// This implementation follows SpeedDB's design, optimizing for:
+/// - Cache locality with XOR based probe patterns
+/// - Optimized concurrent additions
+/// - Double-probing (two bits per probe) for better performance
+/// - Efficient bit remixing for hash distribution
 pub struct SpeedDbDynamicBloom {
-    len: u32, // Length in 64-bit words
-    num_double_probes: u32,
-    data: Box<[AtomicU64]>,
+    len: u32,               // Length in 64-bit words
+    num_double_probes: u32, // Number of double probes (each setting 2 bits)
+    data: Box<[AtomicU64]>, // The bit array backing the filter
 }
 
 impl SpeedDbDynamicBloom {
+    /// Create a new SpeedDB bloom filter with the given parameters
+    /// 
+    /// SpeedDB's implementation uses double probing, where each probe
+    /// sets/checks two bits. It uses XOR-based addressing to maintain
+    /// cache locality while ensuring good bit distribution.
+    /// 
+    /// # Arguments
+    /// * `total_bits` - Total bits in the filter
+    /// * `num_probes` - Number of probes per key (max 10, must be even)
     pub fn new(total_bits: u32, num_probes: u32) -> Self {
-        // Same as before - this part looks correct
+        // SpeedDB's implementation limit
         assert!(num_probes <= 10);
+        
+        // Round down, except round up with 1 - exactly matching SpeedDB
         let num_double_probes = (num_probes + u32::from(num_probes == 1)) / 2;
+        
+        // Determine how much to round off + align by so that x ^ i (xor) is
+        // a valid u64 index if x is a valid u64 index and 0 <= i < kNumDoubleProbes
+        // This exactly matches SpeedDB's dynamic_bloom.cc constructor
         let block_bytes = 8 * std::cmp::max(1, round_up_pow2(num_double_probes));
         let block_bits = block_bytes * 8;
         let blocks = (total_bits + block_bits - 1) / block_bits;
         let sz = blocks * block_bytes;
         let len = sz / 8;
 
+        // Create and zero the filter data
         let mut data = Vec::with_capacity(len as usize);
         data.extend((0..len).map(|_| AtomicU64::new(0)));
 
@@ -27,74 +51,122 @@ impl SpeedDbDynamicBloom {
         }
     }
 
+    /// Check if a given hash may be in the filter
+    /// Uses the double probe technique from SpeedDB
     #[inline]
     fn double_probe(&self, h32: u32, byte_offset: usize) -> bool {
-        // Expand/remix with 64-bit golden ratio
+        // Expand/remix with 64-bit golden ratio - exactly as in SpeedDB
         let mut h = 0x9e3779b97f4a7c13u64.wrapping_mul(h32 as u64);
 
-        for i in 0.. {
-            // Two bit probes per uint64_t probe
+        for i in 0..self.num_double_probes as usize {
+            // Two bit probes per uint64_t probe - exactly matching SpeedDB
             let mask = (1u64 << (h & 63)) | (1u64 << ((h >> 6) & 63));
             let val = self.data[byte_offset ^ i].load(Ordering::Relaxed);
 
+            // Using SpeedDB's exact early exit logic
             if i + 1 >= self.num_double_probes as usize {
                 return (val & mask) == mask;
             } else if (val & mask) != mask {
                 return false;
             }
+            
+            // SpeedDB's exact bit rotation pattern
             h = (h >> 12) | (h << 52);
         }
+        
+        // Should never reach here, but Rust requires a return
         unreachable!()
     }
 
+    /// Core hash addition implementation
+    /// Parameterized by an OR function to support different concurrency patterns
     #[inline]
     fn add_hash_inner<F>(&self, h32: u32, byte_offset: usize, or_func: F)
     where
         F: Fn(&AtomicU64, u64),
     {
+        // Expand/remix with 64-bit golden ratio - exactly as in SpeedDB
         let mut h = 0x9e3779b97f4a7c13u64.wrapping_mul(h32 as u64);
 
-        for i in 0.. {
+        for i in 0..self.num_double_probes as usize {
             // Two bit probes per uint64_t probe
             let mask = (1u64 << (h & 63)) | (1u64 << ((h >> 6) & 63));
+            
+            // Apply the OR function with the proper XOR addressing
             or_func(&self.data[byte_offset ^ i], mask);
 
+            // Use explicit loop bound instead of early return for clarity
             if i + 1 >= self.num_double_probes as usize {
                 return;
             }
+            
+            // SpeedDB's exact bit rotation pattern
             h = (h >> 12) | (h << 52);
         }
     }
 
+    /// Add a hash value to the filter - single-threaded version
+    /// Direct equivalent of SpeedDB's AddHash method
     #[inline]
     pub fn add_hash(&self, h32: u32) {
         let a = self.prepare_hash(h32);
         self.add_hash_inner(h32, a as usize, |ptr, mask| {
+            // Use direct fetch_or with relaxed ordering as in SpeedDB
             ptr.fetch_or(mask, Ordering::Relaxed);
         })
     }
 
+    /// Add a hash value to the filter - optimized for concurrent use
+    /// Direct equivalent of SpeedDB's AddHashConcurrently method
     #[inline]
     pub fn add_hash_concurrently(&self, h32: u32) {
         let a = self.prepare_hash(h32);
         self.add_hash_inner(h32, a as usize, |ptr, mask| {
+            // First check if the bits are already set to avoid unnecessary atomic operations
+            // This is SpeedDB's exact optimization from dynamic_bloom.h
             if (ptr.load(Ordering::Relaxed) & mask) != mask {
                 ptr.fetch_or(mask, Ordering::Relaxed);
             }
         })
     }
 
+    /// Check if a hash value may be in the set
+    /// Returns false if definitely not present, true if possibly present
     #[inline]
     pub fn may_contain(&self, h32: u32) -> bool {
         let a = self.prepare_hash(h32);
         self.double_probe(h32, a as usize)
     }
 
+    /// Batch check for multiple hashes at once (optimized for throughput)
+    /// Based on SpeedDB's MayContain batch implementation
+    #[inline]
+    pub fn may_contain_batch(&self, hashes: &[u32], results: &mut [bool]) {
+        assert_eq!(hashes.len(), results.len());
+        
+        // Prefetch all cache lines first, as in SpeedDB's implementation
+        let mut byte_offsets = Vec::with_capacity(hashes.len());
+        for &hash in hashes {
+            let a = self.prepare_hash(hash);
+            self.prefetch(hash);
+            byte_offsets.push(a as usize);
+        }
+        
+        // Now check each hash
+        for i in 0..hashes.len() {
+            results[i] = self.double_probe(hashes[i], byte_offsets[i]);
+        }
+    }
+
+    /// Calculate the word index for a given hash
+    /// Uses the FastRange algorithm as in SpeedDB
     #[inline]
     fn prepare_hash(&self, h32: u32) -> u32 {
         fast_range32(h32, self.len)
     }
 
+    /// Prefetch the cache line for a given hash
+    /// Matches SpeedDB's prefetch implementation
     #[cfg(target_arch = "x86_64")]
     pub fn prefetch(&self, h32: u32) {
         let a = self.prepare_hash(h32);
@@ -104,17 +176,36 @@ impl SpeedDbDynamicBloom {
                 self.data.as_ptr().add(a as usize) as *const i8,
                 std::arch::x86_64::_MM_HINT_T0,
             );
+            
+            // SpeedDB actually prefetches 3 cache lines ahead to ensure all needed data is in cache
+            // This is from SpeedDB's DynamicBloom::Prefetch implementation (hint 3)
+            _mm_prefetch(
+                self.data.as_ptr().add((a as usize) ^ 1) as *const i8, 
+                std::arch::x86_64::_MM_HINT_T0,
+            );
+            
+            if self.num_double_probes > 2 {
+                _mm_prefetch(
+                    self.data.as_ptr().add((a as usize) ^ 2) as *const i8,
+                    std::arch::x86_64::_MM_HINT_T0,
+                );
+            }
         }
     }
 
+    /// No-op prefetch for non-x86_64 platforms
     #[cfg(not(target_arch = "x86_64"))]
     pub fn prefetch(&self, _h32: u32) {}
 
+    /// Calculate theoretical false positive rate 
+    /// Uses the standard bloom filter formula
     pub fn theoretical_fp_rate(&self, num_entries: usize) -> f64 {
         let bits_per_key = (self.len * 64) as f64 / num_entries as f64;
-        (1.0 - std::f64::consts::E.powf(-bits_per_key * 0.7)).powi(6)
+        let k = self.num_double_probes as f64 * 2.0; // Each double probe sets 2 bits
+        (1.0 - (-k / bits_per_key).exp()).powf(k)
     }
 
+    /// Get current memory usage in bytes
     pub fn memory_usage(&self) -> usize {
         self.data.len() * size_of::<AtomicU64>()
     }
@@ -143,6 +234,7 @@ fn fast_range32(hash: u32, n: u32) -> u32 {
 mod tests {
     use super::*;
     use std::hash::{DefaultHasher, Hash, Hasher};
+    use std::time::Instant;
     use xxhash_rust::xxh3::xxh3_128;
 
     #[test]
@@ -498,5 +590,71 @@ mod tests {
             // SpeedDB's exact assertion
             assert!(fp_rate <= 0.02, "FP rate too high: {}", fp_rate); // Must not be over 2%
         }
+    }
+    
+    #[test]
+    #[cfg(target_arch = "x86_64")]
+    fn test_batch_contains() {
+        let bloom = SpeedDbDynamicBloom::new(10000, 6);
+        let num_keys = 1000;
+        
+        // Add keys
+        for i in 0..num_keys {
+            let hash = xxh3_128(&(i as u64).to_le_bytes());
+            bloom.add_hash(hash as u32);
+        }
+        
+        // Test batch lookup
+        let mut hashes = Vec::with_capacity(num_keys);
+        let mut results = vec![false; num_keys];
+        
+        for i in 0..num_keys {
+            let hash = xxh3_128(&(i as u64).to_le_bytes());
+            hashes.push(hash as u32);
+        }
+        
+        // Measure performance of batch lookup
+        let start = Instant::now();
+        bloom.may_contain_batch(&hashes, &mut results);
+        let batch_time = start.elapsed();
+        
+        // Verify results
+        for i in 0..num_keys {
+            assert!(results[i], "Key {} should be found", i);
+        }
+        
+        // Compare with individual lookups
+        let mut results_individual = vec![false; num_keys];
+        let start = Instant::now();
+        for i in 0..num_keys {
+            results_individual[i] = bloom.may_contain(hashes[i]);
+        }
+        let individual_time = start.elapsed();
+        
+        println!("Batch lookup time: {:?}", batch_time);
+        println!("Individual lookup time: {:?}", individual_time);
+        println!("Speed improvement: {:.2}x", individual_time.as_nanos() as f64 / batch_time.as_nanos() as f64);
+        
+        // Results should be identical
+        assert_eq!(results, results_individual);
+        
+        // Test batch lookup with non-existent keys
+        let mut missing_hashes = Vec::with_capacity(num_keys);
+        let mut missing_results = vec![true; num_keys];
+        
+        for i in 0..num_keys {
+            let hash = xxh3_128(&((i + 1_000_000) as u64).to_le_bytes());
+            missing_hashes.push(hash as u32);
+        }
+        
+        bloom.may_contain_batch(&missing_hashes, &mut missing_results);
+        
+        // Count false positives
+        let false_positives = missing_results.iter().filter(|&&r| r).count();
+        let fp_rate = false_positives as f64 / num_keys as f64;
+        println!("Batch false positive rate: {:.4}%", fp_rate * 100.0);
+        
+        // Should have reasonable false positive rate
+        assert!(fp_rate < 0.05, "FP rate too high: {}", fp_rate);
     }
 }
