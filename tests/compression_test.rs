@@ -1,4 +1,4 @@
-use lsm_tree::lsm_tree::{LSMConfig, LSMTree};
+use lsm_tree::lsm_tree::{LSMConfig, LSMTree, DynamicBloomFilterConfig};
 use lsm_tree::run::compression::{
     CompressionConfig, CompressionType, AdaptiveCompressionConfig, CompressionFactory
 };
@@ -108,6 +108,7 @@ fn create_lsm_tree(compression_config: CompressionConfig,
         compression: compression_config,
         adaptive_compression: adaptive_config,
         collect_compression_stats: true,
+        dynamic_bloom_filter: DynamicBloomFilterConfig::default(),
         ..Default::default()
     };
     

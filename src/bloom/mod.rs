@@ -299,6 +299,16 @@ impl Bloom {
     pub fn memory_usage(&self) -> usize {
         self.data.len() * size_of::<AtomicU64>()
     }
+    
+    /// Get the number of double probes (each double probe sets 2 bits)
+    pub fn get_num_double_probes(&self) -> u32 {
+        self.num_double_probes
+    }
+    
+    /// Get the total number of bits in the filter
+    pub fn get_total_bits(&self) -> u32 {
+        self.len * 64
+    }
 }
 
 /// Rounds up to the next power of 2.
@@ -317,7 +327,7 @@ fn round_up_pow2(mut x: u32) -> u32 {
 
 /// Helper function to calculate optimal bits per entry
 /// for a given level of the LSM tree according to the Monkey paper
-fn calculate_monkey_bits_per_entry(level: usize, fanout: f64) -> f64 {
+pub fn calculate_monkey_bits_per_entry(level: usize, fanout: f64) -> f64 {
     // The bit allocation works as follows:
     // - Lower levels (which are less frequently accessed) get fewer bits per entry
     // - The reduction follows an exponential pattern based on the fanout and level depth
@@ -374,6 +384,10 @@ impl FilterStrategy for Bloom {
         let bytes = key.to_le_bytes();
         let hash = xxh3_128(&bytes) as u32;
         self.may_contain(hash)
+    }
+    
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
     }
     
     /// Override the default implementation with an optimized batch implementation

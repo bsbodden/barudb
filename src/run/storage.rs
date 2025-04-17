@@ -331,6 +331,7 @@ impl RunStorage for FileStorage {
             id: Some(run_id),
             level: run.level, // Preserve level information
             compression_stats: run.compression_stats.clone(),
+            filter_stats: super::FilterStats::default(),
         };
         
         // Ensure deterministic serialization by resealing blocks

@@ -23,6 +23,7 @@ fn create_test_tree(run_threshold: usize, policy_type: CompactionPolicyType) -> 
         background_compaction: false,
         use_lock_free_memtable: false,  // Use standard sharded memtable by default
         use_lock_free_block_cache: true, // Use lock-free block cache by default
+        dynamic_bloom_filter: lsm_tree::lsm_tree::DynamicBloomFilterConfig::default(),
     };
     (LSMTree::with_config(config), temp_dir)
 }
@@ -208,6 +209,7 @@ fn test_recovery_with_partial_compaction() {
         background_compaction: false,
         use_lock_free_memtable: false,  // Use standard sharded memtable by default
         use_lock_free_block_cache: true, // Use lock-free block cache by default
+        dynamic_bloom_filter: lsm_tree::lsm_tree::DynamicBloomFilterConfig::default(),
     };
     
     // Create tree, add data, and force compaction

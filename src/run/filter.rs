@@ -1,6 +1,7 @@
 use super::{Error, Result};
 use crate::types::Key;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::any::Any;
 
 #[allow(dead_code)]
 pub trait FilterStrategy: Send + Sync {
@@ -17,6 +18,9 @@ pub trait FilterStrategy: Send + Sync {
     
     /// Clone this filter as a boxed trait object
     fn box_clone(&self) -> Box<dyn FilterStrategy>;
+    
+    /// Get this filter as Any for downcasting
+    fn as_any(&self) -> &dyn Any;
     
     /// Check if multiple keys may be in the filter (batch operation)
     /// 
@@ -114,6 +118,10 @@ impl FilterStrategy for NoopFilter {
         Box::new(Self {
             entry_count: AtomicUsize::new(self.entry_count.load(Ordering::Relaxed))
         })
+    }
+    
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 }
 

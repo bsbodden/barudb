@@ -38,6 +38,11 @@ impl Level {
         &self.runs
     }
     
+    // Get all runs (for filter statistics)
+    pub fn get_runs_vec(&self) -> Vec<Run> {
+        self.runs.clone()
+    }
+    
     // Remove a run by index
     pub fn remove_run(&mut self, index: usize) -> Run {
         self.runs.remove(index)

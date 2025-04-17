@@ -1,4 +1,4 @@
-use lsm_tree::lsm_tree::{LSMTree, LSMConfig};
+use lsm_tree::lsm_tree::{LSMTree, LSMConfig, DynamicBloomFilterConfig};
 use lsm_tree::types::{CompactionPolicyType, StorageType};
 use std::fs;
 use std::path::PathBuf;
@@ -67,7 +67,8 @@ fn create_lsm_config(
         collect_compression_stats: false, // Don't collect stats for tests
         background_compaction: false,
         use_lock_free_memtable: false,  // Use standard sharded memtable by default
-        use_lock_free_block_cache: true, // Use lock-free block cache by default // Disable background compaction for deterministic behavior
+        use_lock_free_block_cache: true, // Use lock-free block cache by default
+        dynamic_bloom_filter: DynamicBloomFilterConfig::default(), // Disable dynamic bloom filter sizing for tests
     }
 }
 

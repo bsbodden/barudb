@@ -16,7 +16,7 @@ use std::io;
 use std::sync::{Arc, RwLock, OnceLock};
 use std::any::Any;
 
-use crate::bloom::{Bloom, create_bloom_for_level};
+use crate::bloom::{Bloom, calculate_monkey_bits_per_entry};
 pub use block::{Block, BlockConfig};
 pub use block_cache::{BlockCache, BlockCacheConfig, BlockKey, CacheStats};
 pub use lock_free_block_cache::{LockFreeBlockCache, LockFreeBlockCacheConfig, LockFreeCacheStatsSnapshot as LockFreeCacheStats};
@@ -25,6 +25,62 @@ pub use compression::{
     CompressionType, CompressionFactory, CompressionConfig,
     AdaptiveCompressionConfig, AdaptiveCompression, CompressionStats
 };
+
+/// Statistics for tracking bloom filter performance
+#[derive(Debug)]
+pub struct FilterStats {
+    /// Total number of filter checks
+    pub checks: std::sync::atomic::AtomicUsize,
+    
+    /// Number of filter checks that returned true (may_contain)
+    pub positive_checks: std::sync::atomic::AtomicUsize,
+    
+    /// Number of false positives (filter said key might exist, but it didn't)
+    pub false_positives: std::sync::atomic::AtomicUsize,
+    
+    /// Current number of bits per entry in the filter
+    pub bits_per_entry: std::sync::atomic::AtomicU32,
+    
+    /// Current number of hash functions used in the filter
+    pub hash_functions: std::sync::atomic::AtomicU32,
+}
+
+impl Default for FilterStats {
+    fn default() -> Self {
+        Self {
+            checks: std::sync::atomic::AtomicUsize::new(0),
+            positive_checks: std::sync::atomic::AtomicUsize::new(0),
+            false_positives: std::sync::atomic::AtomicUsize::new(0),
+            bits_per_entry: std::sync::atomic::AtomicU32::new(10), // Default 10 bits per entry
+            hash_functions: std::sync::atomic::AtomicU32::new(6),  // Default 6 hash functions
+        }
+    }
+}
+
+/// Non-atomic snapshot of filter statistics for reporting
+#[derive(Debug, Clone)]
+pub struct FilterStatsSnapshot {
+    /// Total number of filter checks
+    pub checks: usize,
+    
+    /// Number of filter checks that returned true (may_contain)
+    pub positive_checks: usize,
+    
+    /// Number of false positives (filter said key might exist, but it didn't)
+    pub false_positives: usize,
+    
+    /// Current number of bits per entry in the filter
+    pub bits_per_entry: f64,
+    
+    /// Current number of hash functions used in the filter
+    pub hash_functions: u32,
+    
+    /// Observed false positive rate (false_positives / positive_checks)
+    pub observed_fp_rate: f64,
+    
+    /// Theoretical false positive rate based on filter parameters
+    pub theoretical_fp_rate: f64,
+}
 pub use compressed_fence::{
     CompressedFencePointers, AdaptivePrefixFencePointers, PrefixGroup
 };
@@ -209,11 +265,32 @@ pub struct Run {
     pub level: Option<usize>,
     // Compression statistics for this run
     pub compression_stats: Option<CompressionStats>,
+    // Filter statistics for dynamic sizing
+    pub filter_stats: FilterStats,
 }
 
 // Implement Clone manually since we have Boxed trait objects
 impl Clone for Run {
     fn clone(&self) -> Self {
+        // Clone FilterStats fields individually to preserve atomic values
+        let filter_stats = FilterStats {
+            checks: std::sync::atomic::AtomicUsize::new(
+                self.filter_stats.checks.load(std::sync::atomic::Ordering::Relaxed)
+            ),
+            positive_checks: std::sync::atomic::AtomicUsize::new(
+                self.filter_stats.positive_checks.load(std::sync::atomic::Ordering::Relaxed)
+            ),
+            false_positives: std::sync::atomic::AtomicUsize::new(
+                self.filter_stats.false_positives.load(std::sync::atomic::Ordering::Relaxed)
+            ),
+            bits_per_entry: std::sync::atomic::AtomicU32::new(
+                self.filter_stats.bits_per_entry.load(std::sync::atomic::Ordering::Relaxed)
+            ),
+            hash_functions: std::sync::atomic::AtomicU32::new(
+                self.filter_stats.hash_functions.load(std::sync::atomic::Ordering::Relaxed)
+            ),
+        };
+        
         Run {
             data: self.data.clone(),
             block_config: self.block_config.clone(),
@@ -224,6 +301,7 @@ impl Clone for Run {
             id: self.id.clone(),
             level: self.level,
             compression_stats: self.compression_stats.clone(),
+            filter_stats,
         }
     }
 }
@@ -240,8 +318,20 @@ impl Run {
         let mut blocks = Vec::new();
         let mut fence_pointers = FencePointers::new();
 
-        // Create a basic filter with default values
-        let mut filter: Box<dyn FilterStrategy> = Box::new(Bloom::new((data.len() * 10) as u32, 6));
+        // Create a basic filter with default values - 10 bits per entry, 6 hash functions
+        let bits_per_entry = 10.0;
+        let hash_functions = 6;
+        let total_bits = (data.len() as f64 * bits_per_entry).ceil() as u32;
+        let mut filter: Box<dyn FilterStrategy> = Box::new(Bloom::new(total_bits, hash_functions));
+        
+        // Initialize filter stats with current configuration
+        let filter_stats = FilterStats {
+            checks: std::sync::atomic::AtomicUsize::new(0),
+            positive_checks: std::sync::atomic::AtomicUsize::new(0),
+            false_positives: std::sync::atomic::AtomicUsize::new(0),
+            bits_per_entry: std::sync::atomic::AtomicU32::new(bits_per_entry as u32),
+            hash_functions: std::sync::atomic::AtomicU32::new(hash_functions),
+        };
         
         // No level info by default
         let level = None;
@@ -288,6 +378,7 @@ impl Run {
             id: None,
             level,
             compression_stats: None,
+            filter_stats,
         }
     }
     
@@ -311,9 +402,75 @@ impl Run {
         let mut blocks = Vec::new();
         let mut fence_pointers = FencePointers::new();
 
-        // Create a Bloom filter with Monkey optimization for this level
-        let bloom = create_bloom_for_level(data.len(), level, fanout);
+        // Determine if we're using dynamic bloom filter sizing
+        let dynamic_bloom_enabled = config.as_ref()
+            .map(|c| c.dynamic_bloom_filter.enabled)
+            .unwrap_or(false);
+            
+        // If config is available and dynamic sizing is enabled, use previous statistics to adjust bits
+        let (bits_per_entry, hash_functions) = if let Some(config) = config {
+            if dynamic_bloom_enabled {
+                // Get target FP rate for this level (default to lowest if level is beyond config)
+                let target_fp = if level < config.dynamic_bloom_filter.target_fp_rates.len() {
+                    config.dynamic_bloom_filter.target_fp_rates[level]
+                } else if !config.dynamic_bloom_filter.target_fp_rates.is_empty() {
+                    *config.dynamic_bloom_filter.target_fp_rates.last().unwrap()
+                } else {
+                    0.01 // Default to 1% if no targets configured
+                };
+                
+                // Calculate bits per entry needed to achieve target FP rate
+                // Formula: bits_per_entry = -log2(target_fp) / ln(2)
+                let required_bits = -target_fp.log2() / std::f64::consts::LN_2;
+                
+                // Clamp to min/max
+                let bits = required_bits.clamp(
+                    config.dynamic_bloom_filter.min_bits_per_entry,
+                    config.dynamic_bloom_filter.max_bits_per_entry
+                );
+                
+                // Calculate optimal hash functions: ln(2) * bits_per_entry
+                let optimal_hashes = (std::f64::consts::LN_2 * bits).round() as u32;
+                let hashes = optimal_hashes.clamp(1, 10);
+                
+                if std::env::var("RUST_LOG").map(|v| v == "debug").unwrap_or(false) {
+                    println!("Dynamic bloom filter for level {}: target FP rate={:.4}, bits={:.2}, hashes={}",
+                             level, target_fp, bits, hashes);
+                }
+                
+                (bits, hashes)
+            } else {
+                // Use Monkey optimization from create_bloom_for_level, but extract parameters
+                let bits = calculate_monkey_bits_per_entry(level, fanout);
+                let ln2 = std::f64::consts::LN_2;
+                let hashes = (ln2 * bits).round() as u32;
+                let hashes = hashes.clamp(1, 10);
+                
+                (bits, hashes)
+            }
+        } else {
+            // Default to Monkey optimization
+            let bits = calculate_monkey_bits_per_entry(level, fanout);
+            let ln2 = std::f64::consts::LN_2;
+            let hashes = (ln2 * bits).round() as u32;
+            let hashes = hashes.clamp(1, 10);
+            
+            (bits, hashes)
+        };
+        
+        // Create the bloom filter with calculated parameters
+        let total_bits = (data.len() as f64 * bits_per_entry).ceil() as u32;
+        let bloom = Bloom::new(total_bits, hash_functions);
         let mut filter: Box<dyn FilterStrategy> = Box::new(bloom);
+        
+        // Initialize filter stats with current configuration
+        let filter_stats = FilterStats {
+            checks: std::sync::atomic::AtomicUsize::new(0),
+            positive_checks: std::sync::atomic::AtomicUsize::new(0),
+            false_positives: std::sync::atomic::AtomicUsize::new(0),
+            bits_per_entry: std::sync::atomic::AtomicU32::new(bits_per_entry as u32),
+            hash_functions: std::sync::atomic::AtomicU32::new(hash_functions),
+        };
         
         // Create initial block and populate filter
         if !data.is_empty() {
@@ -372,6 +529,7 @@ impl Run {
             id: None,
             level: Some(level),
             compression_stats: None,
+            filter_stats,
         }
     }
     
@@ -404,12 +562,18 @@ impl Run {
         }
         
         // First check filter
+        // Update filter check statistics
+        self.filter_stats.checks.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        
         if !self.filter.may_contain(&key) {
             if std::env::var("RUST_LOG").map(|v| v == "debug").unwrap_or(false) {
                 println!("Key {} not in filter", key);
             }
             return None;
         }
+        
+        // Filter returned a positive (key might exist)
+        self.filter_stats.positive_checks.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
         // Use fence pointers to find candidate blocks
         if !self.fence_pointers.is_empty() {
@@ -450,6 +614,11 @@ impl Run {
         if std::env::var("RUST_LOG").map(|v| v == "debug").unwrap_or(false) {
             println!("Key {} not found in any block", key);
         }
+        
+        // This was a false positive from the filter - the filter said the key might exist,
+        // but it wasn't found in any block
+        self.filter_stats.false_positives.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        
         None
     }
 
@@ -977,6 +1146,31 @@ impl Run {
             None
         } else {
             Some(self.blocks.iter().map(|b| b.header.max_key).max().unwrap())
+        }
+    }
+    
+    /// Calculate the actual observed false positive rate of the Bloom filter
+    pub fn observed_false_positive_rate(&self) -> f64 {
+        let positives = self.filter_stats.positive_checks.load(std::sync::atomic::Ordering::Relaxed);
+        let false_positives = self.filter_stats.false_positives.load(std::sync::atomic::Ordering::Relaxed);
+        
+        if positives == 0 {
+            return 0.0;
+        }
+        
+        false_positives as f64 / positives as f64
+    }
+    
+    /// Get a snapshot of filter statistics
+    pub fn get_filter_stats(&self) -> FilterStatsSnapshot {
+        FilterStatsSnapshot {
+            checks: self.filter_stats.checks.load(std::sync::atomic::Ordering::Relaxed),
+            positive_checks: self.filter_stats.positive_checks.load(std::sync::atomic::Ordering::Relaxed),
+            false_positives: self.filter_stats.false_positives.load(std::sync::atomic::Ordering::Relaxed),
+            bits_per_entry: self.filter_stats.bits_per_entry.load(std::sync::atomic::Ordering::Relaxed) as f64,
+            hash_functions: self.filter_stats.hash_functions.load(std::sync::atomic::Ordering::Relaxed),
+            observed_fp_rate: self.observed_false_positive_rate(),
+            theoretical_fp_rate: self.filter.false_positive_rate(),
         }
     }
 
@@ -1529,6 +1723,24 @@ impl Run {
             }
         }
         
+        // Create default filter stats for deserialized run
+        let filter_stats = FilterStats::default();
+        
+        // Try to extract bits per entry and hash functions from the filter
+        // This is an approximation since we don't serialize these directly
+        if let Some(bloom) = filter.as_any().downcast_ref::<Bloom>() {
+            // Extract double probes and convert to hash functions (each double probe sets 2 bits)
+            let hash_functions = bloom.get_num_double_probes() * 2;
+            
+            // Estimate bits per entry based on total bits and entry count
+            let total_bits = bloom.get_total_bits();
+            let entry_count = data.len().max(1); // Avoid division by zero
+            let bits_per_entry = (total_bits as f64 / entry_count as f64).round() as u32;
+            
+            filter_stats.bits_per_entry.store(bits_per_entry, std::sync::atomic::Ordering::Relaxed);
+            filter_stats.hash_functions.store(hash_functions, std::sync::atomic::Ordering::Relaxed);
+        }
+        
         Ok(Run {
             data,
             block_config: BlockConfig::default(),
@@ -1539,6 +1751,7 @@ impl Run {
             id: None,
             level: None, // Level info is not serialized currently
             compression_stats: None,
+            filter_stats,
         })
     }
 

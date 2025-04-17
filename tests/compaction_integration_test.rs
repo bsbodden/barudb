@@ -1,4 +1,4 @@
-use lsm_tree::lsm_tree::{LSMTree, LSMConfig};
+use lsm_tree::lsm_tree::{LSMTree, LSMConfig, DynamicBloomFilterConfig};
 use lsm_tree::types::{CompactionPolicyType, StorageType};
 use tempfile::tempdir;
 
@@ -28,6 +28,7 @@ fn create_test_tree(run_threshold: usize, policy_type: CompactionPolicyType) -> 
         background_compaction: false,
         use_lock_free_memtable: false,  // Use standard sharded memtable by default
         use_lock_free_block_cache: true, // Use lock-free block cache by default
+        dynamic_bloom_filter: DynamicBloomFilterConfig::default(), // Disable dynamic bloom filter sizing for tests
     };
     (LSMTree::with_config(config), temp_dir)
 }
@@ -203,6 +204,7 @@ fn test_recovery_with_compaction() {
         background_compaction: false,
         use_lock_free_memtable: false,  // Use standard sharded memtable by default
         use_lock_free_block_cache: true, // Use lock-free block cache by default
+        dynamic_bloom_filter: DynamicBloomFilterConfig::default(), // Disable dynamic bloom filter sizing for tests
     };
     
     let mut tree = LSMTree::with_config(config);
@@ -243,6 +245,7 @@ fn test_recovery_with_compaction() {
         background_compaction: false,
         use_lock_free_memtable: false,  // Use standard sharded memtable by default
         use_lock_free_block_cache: true, // Use lock-free block cache by default
+        dynamic_bloom_filter: DynamicBloomFilterConfig::default(), // Disable dynamic bloom filter sizing for tests
     };
     
     let recovered_tree = LSMTree::with_config(config);
@@ -282,6 +285,7 @@ fn test_recovery_with_leveled_compaction() {
         background_compaction: false,
         use_lock_free_memtable: false,  // Use standard sharded memtable by default
         use_lock_free_block_cache: true, // Use lock-free block cache by default
+        dynamic_bloom_filter: DynamicBloomFilterConfig::default(), // Disable dynamic bloom filter sizing for tests
     };
     
     let mut tree = LSMTree::with_config(config);
@@ -328,6 +332,7 @@ fn test_recovery_with_leveled_compaction() {
         background_compaction: false,
         use_lock_free_memtable: false,  // Use standard sharded memtable by default
         use_lock_free_block_cache: true, // Use lock-free block cache by default
+        dynamic_bloom_filter: DynamicBloomFilterConfig::default(), // Disable dynamic bloom filter sizing for tests
     };
     
     let recovered_tree = LSMTree::with_config(config);
@@ -447,6 +452,7 @@ fn test_recovery_with_lazy_leveled_compaction() {
         background_compaction: false,
         use_lock_free_memtable: false,  // Use standard sharded memtable by default
         use_lock_free_block_cache: true, // Use lock-free block cache by default
+        dynamic_bloom_filter: DynamicBloomFilterConfig::default(), // Disable dynamic bloom filter sizing for tests
     };
     
     let mut tree = LSMTree::with_config(config);
@@ -493,6 +499,7 @@ fn test_recovery_with_lazy_leveled_compaction() {
         background_compaction: false,
         use_lock_free_memtable: false,  // Use standard sharded memtable by default
         use_lock_free_block_cache: true, // Use lock-free block cache by default
+        dynamic_bloom_filter: DynamicBloomFilterConfig::default(), // Disable dynamic bloom filter sizing for tests
     };
     
     let recovered_tree = LSMTree::with_config(config);

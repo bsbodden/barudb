@@ -1,4 +1,4 @@
-use lsm_tree::lsm_tree::{LSMTree, LSMConfig};
+use lsm_tree::lsm_tree::{LSMTree, LSMConfig, DynamicBloomFilterConfig};
 use lsm_tree::types::{CompactionPolicyType, StorageType};
 use tempfile::tempdir;
 
@@ -24,6 +24,7 @@ fn test_lsm_tree_with_compaction_policy() {
         background_compaction: false,
         use_lock_free_memtable: false,  // Use standard sharded memtable by default
         use_lock_free_block_cache: true, // Use lock-free block cache by default
+        dynamic_bloom_filter: DynamicBloomFilterConfig::default(),
     };
     
     let mut tree = LSMTree::with_config(config);

@@ -50,3 +50,7 @@ harness = false
 name = "lock_free_bench"
 harness = false
 
+[[bench]]
+name = "dynamic_bloom_bench"
+harness = false
+

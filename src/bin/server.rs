@@ -351,6 +351,7 @@ fn main() -> io::Result<()> {
         // Default values for lock-free implementations
         use_lock_free_memtable: false,  // Use standard sharded memtable by default
         use_lock_free_block_cache: true, // Use lock-free block cache by default
+        dynamic_bloom_filter: lsm_tree::lsm_tree::DynamicBloomFilterConfig::default(),
     };
     
     println!("Starting server with configuration:");

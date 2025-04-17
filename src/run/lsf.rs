@@ -1,5 +1,5 @@
 use crate::run::{
-    Error, FencePointers, Result, Run, RunId, RunMetadata, RunStorage, StorageOptions, StorageStats
+    Error, FencePointers, FilterStats, Result, Run, RunId, RunMetadata, RunStorage, StorageOptions, StorageStats
 };
 use crate::run::storage::AsAny;
 use std::any::Any;
@@ -484,6 +484,7 @@ impl LSFStorage {
             id: Some(run_id),  // Set the ID before serialization
             level: run.level, // Preserve level information
             compression_stats: run.compression_stats.clone(),
+            filter_stats: FilterStats::default(),
         };
         
         // Serialize the run
@@ -924,6 +925,7 @@ impl RunStorage for LSFStorage {
             id: None,
             level: Some(level), // Set level information
             compression_stats: run.compression_stats.clone(),
+            filter_stats: FilterStats::default(),
         };
         
         // Create a new sequence specifically for the level
@@ -955,6 +957,7 @@ impl RunStorage for LSFStorage {
             id: Some(run_id),  // Set the ID before serialization
             level: run_clone.level, // Preserve level information
             compression_stats: run_clone.compression_stats.clone(),
+            filter_stats: FilterStats::default(),
         };
         
         // Serialize the run

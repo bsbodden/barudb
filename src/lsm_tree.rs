@@ -63,6 +63,46 @@ pub struct LSMConfig {
     /// Whether to use lock-free block cache implementation
     /// Default is true (use lock-free block cache)
     pub use_lock_free_block_cache: bool,
+    
+    /// Configuration for dynamic bloom filter sizing
+    pub dynamic_bloom_filter: DynamicBloomFilterConfig,
+}
+
+/// Configuration for dynamic bloom filter sizing
+#[derive(Debug, Clone)]
+pub struct DynamicBloomFilterConfig {
+    /// Whether dynamic sizing is enabled
+    pub enabled: bool,
+    
+    /// Target false positive rate for each level
+    /// When a level's observed FP rate exceeds this, more bits are allocated
+    pub target_fp_rates: Vec<f64>,
+    
+    /// Minimum bits per entry for any level's bloom filter
+    pub min_bits_per_entry: f64,
+    
+    /// Maximum bits per entry for any level's bloom filter
+    pub max_bits_per_entry: f64,
+    
+    /// Sample size threshold for making adjustments
+    /// Only make adjustments after this many bloom filter queries
+    pub min_sample_size: usize,
+}
+
+impl Default for DynamicBloomFilterConfig {
+    fn default() -> Self {
+        // Default target FP rates - decreasing exponentially with level depth
+        // Level 0: 0.1% (0.001), Level 1: 0.5%, Level 2: 1%, Level 3: 2%, etc.
+        let target_fp_rates = vec![0.001, 0.005, 0.01, 0.02, 0.05, 0.10, 0.15, 0.20, 0.25, 0.30];
+        
+        Self {
+            enabled: false, // Disabled by default
+            target_fp_rates,
+            min_bits_per_entry: 2.0,   // Absolute minimum bits per entry
+            max_bits_per_entry: 32.0,  // Maximum bits per entry (same as Monkey's default max)
+            min_sample_size: 1000,     // Only adjust after 1000 queries
+        }
+    }
 }
 
 impl Default for LSMConfig {
@@ -87,6 +127,7 @@ impl Default for LSMConfig {
             // Based on benchmark results, we set these defaults for optimal performance
             use_lock_free_memtable: false, // Standard sharded memtable performs better
             use_lock_free_block_cache: true, // Lock-free block cache is 5x faster
+            dynamic_bloom_filter: DynamicBloomFilterConfig::default(),
         }
     }
 }
@@ -722,6 +763,146 @@ impl LSMTree {
         }
         None
     }
+    
+    /// Get filter statistics for all runs in the tree
+    /// 
+    /// This returns statistics for each level's run, including filter configuration
+    /// and observed false positive rates.
+    pub fn get_filter_stats(&self) -> Vec<(usize, Vec<run::FilterStatsSnapshot>)> {
+        let mut all_stats = Vec::new();
+        
+        // Get stats from each level
+        for (level_idx, level) in self.levels.iter().enumerate() {
+            let level_runs = level.clone_level().get_runs_vec();
+            let run_stats: Vec<_> = level_runs.iter()
+                .filter_map(|run| {
+                    // Only include runs with sufficient stats for meaningful reporting
+                    let stats = run.get_filter_stats();
+                    if stats.checks > self.config.dynamic_bloom_filter.min_sample_size {
+                        Some(stats)
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            
+            if !run_stats.is_empty() {
+                all_stats.push((level_idx, run_stats));
+            }
+        }
+        
+        all_stats
+    }
+    
+    /// Get a summary of bloom filter performance across the entire tree
+    pub fn get_filter_stats_summary(&self) -> Option<FilterStatsSummary> {
+        let stats = self.get_filter_stats();
+        if stats.is_empty() {
+            return None;
+        }
+        
+        let mut total_checks = 0;
+        let mut total_positives = 0;
+        let mut total_false_positives = 0;
+        let mut level_summaries = Vec::new();
+        
+        for (level, run_stats) in &stats {
+            let level_checks: usize = run_stats.iter().map(|s| s.checks).sum();
+            let level_positives: usize = run_stats.iter().map(|s| s.positive_checks).sum();
+            let level_false_positives: usize = run_stats.iter().map(|s| s.false_positives).sum();
+            
+            total_checks += level_checks;
+            total_positives += level_positives;
+            total_false_positives += level_false_positives;
+            
+            let avg_bits_per_entry = run_stats.iter()
+                .map(|s| s.bits_per_entry)
+                .sum::<f64>() / run_stats.len() as f64;
+                
+            let avg_observed_fp_rate = if level_positives > 0 {
+                level_false_positives as f64 / level_positives as f64
+            } else {
+                0.0
+            };
+            
+            let avg_theoretical_fp_rate = run_stats.iter()
+                .map(|s| s.theoretical_fp_rate)
+                .sum::<f64>() / run_stats.len() as f64;
+                
+            level_summaries.push(LevelFilterStats {
+                level: *level,
+                runs: run_stats.len(),
+                checks: level_checks,
+                positive_checks: level_positives,
+                false_positives: level_false_positives,
+                avg_bits_per_entry,
+                observed_fp_rate: avg_observed_fp_rate,
+                theoretical_fp_rate: avg_theoretical_fp_rate,
+            });
+        }
+        
+        // Calculate overall FP rate
+        let overall_fp_rate = if total_positives > 0 {
+            total_false_positives as f64 / total_positives as f64
+        } else {
+            0.0
+        };
+        
+        Some(FilterStatsSummary {
+            total_checks,
+            total_positives,
+            total_false_positives,
+            overall_fp_rate,
+            level_stats: level_summaries,
+        })
+    }
+}
+
+/// Summary statistics for bloom filter performance by level
+#[derive(Debug, Clone)]
+pub struct LevelFilterStats {
+    /// The level number
+    pub level: usize,
+    
+    /// Number of runs in this level
+    pub runs: usize,
+    
+    /// Total number of filter checks in this level
+    pub checks: usize,
+    
+    /// Number of positive filter checks in this level
+    pub positive_checks: usize,
+    
+    /// Number of false positives in this level
+    pub false_positives: usize,
+    
+    /// Average bits per entry across all runs in this level
+    pub avg_bits_per_entry: f64,
+    
+    /// Observed false positive rate for this level
+    pub observed_fp_rate: f64,
+    
+    /// Average theoretical false positive rate for this level
+    pub theoretical_fp_rate: f64,
+}
+
+/// Summary of bloom filter performance across the entire LSM tree
+#[derive(Debug, Clone)]
+pub struct FilterStatsSummary {
+    /// Total number of filter checks across all levels
+    pub total_checks: usize,
+    
+    /// Total number of positive filter checks across all levels
+    pub total_positives: usize,
+    
+    /// Total number of false positives across all levels
+    pub total_false_positives: usize,
+    
+    /// Overall false positive rate across all levels
+    pub overall_fp_rate: f64,
+    
+    /// Statistics broken down by level
+    pub level_stats: Vec<LevelFilterStats>,
 }
 
 impl Drop for LSMTree {
@@ -758,6 +939,7 @@ mod tests {
             background_compaction: false,
             use_lock_free_memtable: false,  // Use standard sharded memtable by default
             use_lock_free_block_cache: true, // Use lock-free block cache by default
+            dynamic_bloom_filter: DynamicBloomFilterConfig::default(),
         };
         (LSMTree::with_config(config), temp_dir)
     }
@@ -833,6 +1015,7 @@ mod tests {
             background_compaction: false,
             use_lock_free_memtable: false,  // Use standard sharded memtable by default
             use_lock_free_block_cache: true, // Use lock-free block cache by default
+            dynamic_bloom_filter: DynamicBloomFilterConfig::default(),
         };
         
         // Create LSM tree with custom config
@@ -895,6 +1078,7 @@ mod tests {
             background_compaction: false,
             use_lock_free_memtable: false,  // Use standard sharded memtable by default
             use_lock_free_block_cache: true, // Use lock-free block cache by default
+            dynamic_bloom_filter: DynamicBloomFilterConfig::default(),
         };
         
         // Create new tree - recovery should happen automatically
@@ -938,6 +1122,7 @@ mod tests {
             background_compaction: false,
             use_lock_free_memtable: false,  // Use standard sharded memtable by default
             use_lock_free_block_cache: true, // Use lock-free block cache by default
+            dynamic_bloom_filter: DynamicBloomFilterConfig::default(),
         };
         
         let mut recovered_tree = LSMTree::with_config(config);
@@ -1047,6 +1232,7 @@ mod tests {
             background_compaction: true, // Enable background compaction
             use_lock_free_memtable: false,  // Use standard sharded memtable by default
             use_lock_free_block_cache: true, // Use lock-free block cache by default
+            dynamic_bloom_filter: DynamicBloomFilterConfig::default(),
         };
         
         // Create tree with background compaction
