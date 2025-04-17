@@ -375,6 +375,59 @@ impl FilterStrategy for Bloom {
         let hash = xxh3_128(&bytes) as u32;
         self.may_contain(hash)
     }
+    
+    /// Override the default implementation with an optimized batch implementation
+    /// that uses the Bloom filter's batch operation with prefetching
+    fn may_contain_batch(&self, keys: &[Key], results: &mut [bool]) {
+        assert_eq!(keys.len(), results.len(), "Keys and results slices must be the same length");
+        
+        // If the batch is very small, fall back to the default sequential implementation
+        // for fewer than 3 keys, the overhead of batch processing often doesn't justify the gains
+        if keys.len() < 3 {
+            for (i, key) in keys.iter().enumerate() {
+                let bytes = key.to_le_bytes();
+                let hash = xxh3_128(&bytes) as u32;
+                results[i] = self.may_contain(hash);
+            }
+            return;
+        }
+        
+        // Convert all keys to hashes first
+        let mut hashes = Vec::with_capacity(keys.len());
+        for key in keys {
+            let bytes = key.to_le_bytes();
+            let hash = xxh3_128(&bytes) as u32;
+            hashes.push(hash);
+        }
+        
+        // Use the optimized batch implementation
+        self.may_contain_batch(&hashes, results);
+    }
+    
+    /// Override the default implementation with an optimized batch implementation
+    /// that uses the Bloom filter's batch operation with prefetching
+    fn add_batch(&mut self, keys: &[Key]) -> Result<()> {
+        // If the batch is very small, fall back to the default sequential implementation
+        if keys.len() < 3 {
+            for key in keys {
+                self.add(key)?;
+            }
+            return Ok(());
+        }
+        
+        // Convert all keys to hashes first
+        let mut hashes = Vec::with_capacity(keys.len());
+        for key in keys {
+            let bytes = key.to_le_bytes();
+            let hash = xxh3_128(&bytes) as u32;
+            hashes.push(hash);
+        }
+        
+        // Use the optimized batch implementation
+        // Use non-concurrent mode for simplicity since we're already mutably borrowing self
+        self.add_hash_batch(&hashes, false);
+        Ok(())
+    }
 
     fn false_positive_rate(&self) -> f64 {
         // Calculate using the direct theoretical rate

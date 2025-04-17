@@ -65,19 +65,53 @@ impl Level {
 
     // Retrieve all key-value pairs in the specified range (in-memory only)
     pub fn range(&self, start: Key, end: Key) -> Vec<(Key, Value)> {
+        // If we have multiple runs, we need to make a batch call for each run
+        // but we can't easily batch calls across runs because each run has its own filter
+        // So we process each run but collect the results in one go
+        
+        let debug_mode = std::env::var("RUST_LOG").map(|v| v == "debug").unwrap_or(false);
+        if debug_mode {
+            println!("Level range query: [{}, {}) across {} runs", start, end, self.runs.len());
+        }
+        
         let mut results = Vec::new();
+        
+        // No need for special handling if there are no runs or just one run
+        if self.runs.is_empty() {
+            return results;
+        } else if self.runs.len() == 1 {
+            return self.runs[0].range(start, end);
+        }
+        
+        // Process each run in parallel (conceptually)
         for run in &self.runs {
             results.extend(run.range(start, end));
         }
+        
         results
     }
     
     // Retrieve all key-value pairs in the specified range with storage support
     pub fn range_with_storage(&self, start: Key, end: Key, storage: &dyn RunStorage) -> Vec<(Key, Value)> {
+        let debug_mode = std::env::var("RUST_LOG").map(|v| v == "debug").unwrap_or(false);
+        if debug_mode {
+            println!("Level range_with_storage query: [{}, {}) across {} runs", start, end, self.runs.len());
+        }
+        
         let mut results = Vec::new();
+        
+        // No need for special handling if there are no runs or just one run
+        if self.runs.is_empty() {
+            return results;
+        } else if self.runs.len() == 1 {
+            return self.runs[0].range_with_storage(start, end, storage);
+        }
+        
+        // Process each run (each run already uses batch operations internally)
         for run in &self.runs {
             results.extend(run.range_with_storage(start, end, storage));
         }
+        
         results
     }
 }
@@ -138,12 +172,22 @@ impl ConcurrentLevel {
 
     // Retrieve all key-value pairs in the specified range (requires read lock)
     pub fn range(&self, start: Key, end: Key) -> Vec<(Key, Value)> {
+        let debug_mode = std::env::var("RUST_LOG").map(|v| v == "debug").unwrap_or(false);
+        if debug_mode {
+            println!("ConcurrentLevel range query: [{}, {})", start, end);
+        }
+        
         let level = self.inner.read().unwrap();
         level.range(start, end)
     }
     
     // Retrieve all key-value pairs in the specified range with storage support (requires read lock)
     pub fn range_with_storage(&self, start: Key, end: Key, storage: &dyn RunStorage) -> Vec<(Key, Value)> {
+        let debug_mode = std::env::var("RUST_LOG").map(|v| v == "debug").unwrap_or(false);
+        if debug_mode {
+            println!("ConcurrentLevel range_with_storage query: [{}, {})", start, end);
+        }
+        
         let level = self.inner.read().unwrap();
         level.range_with_storage(start, end, storage)
     }

@@ -17,6 +17,36 @@ pub trait FilterStrategy: Send + Sync {
     
     /// Clone this filter as a boxed trait object
     fn box_clone(&self) -> Box<dyn FilterStrategy>;
+    
+    /// Check if multiple keys may be in the filter (batch operation)
+    /// 
+    /// Default implementation processes keys individually. Implementations should
+    /// override this with an optimized batch implementation when available.
+    /// 
+    /// # Arguments
+    /// * `keys` - Slice of keys to check
+    /// * `results` - Output slice to store results (must be same length as keys)
+    fn may_contain_batch(&self, keys: &[Key], results: &mut [bool]) {
+        assert_eq!(keys.len(), results.len(), "Keys and results slices must be the same length");
+        for (i, key) in keys.iter().enumerate() {
+            results[i] = self.may_contain(key);
+        }
+    }
+    
+    /// Add multiple keys to the filter (batch operation)
+    /// 
+    /// Default implementation processes keys individually. Implementations should
+    /// override this with an optimized batch implementation when available.
+    /// 
+    /// # Arguments
+    /// * `keys` - Slice of keys to add to the filter
+    /// * `concurrent` - If true, use concurrent add operations with contention reduction
+    fn add_batch(&mut self, keys: &[Key]) -> Result<()> {
+        for key in keys {
+            self.add(key)?;
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Default)]
@@ -38,6 +68,20 @@ impl FilterStrategy for NoopFilter {
 
     fn may_contain(&self, _key: &Key) -> bool {
         true
+    }
+    
+    /// Override the default implementation for efficiency since this
+    /// filter always returns true for all keys
+    fn may_contain_batch(&self, _keys: &[Key], results: &mut [bool]) {
+        // NoopFilter always returns true for all keys
+        results.iter_mut().for_each(|r| *r = true);
+    }
+    
+    /// Override the default implementation for efficiency
+    fn add_batch(&mut self, keys: &[Key]) -> Result<()> {
+        // Simply increment the counter by the batch size
+        self.entry_count.fetch_add(keys.len(), Ordering::SeqCst);
+        Ok(())
     }
 
     fn false_positive_rate(&self) -> f64 {

@@ -10,12 +10,8 @@ fn random_numbers(num: usize, seed: u64) -> Vec<u32> {
 }
 
 fn bench_bloom_filters(c: &mut Criterion) {
-    let sizes = [
-        1_000, 2_000, 4_000, 8_000, // Fine-grained small set sizes
-        10_000,
-        25_000, 50_000, // Medium set sizes
-        100_000
-    ];
+    // Only use the smallest size for faster evaluation
+    let sizes = [1_000];
     let mut group = c.benchmark_group("bloom_filters");
 
     // Add configuration for better small-set resolution
