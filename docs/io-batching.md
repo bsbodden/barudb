@@ -8,7 +8,7 @@ This document outlines the implementation of I/O batching in the LSM-Tree to imp
 
 ### I/O Batching Performance
 
-```
+```bash
 Testing I/O batching performance:
   Individual loading (20 blocks): 3.880027ms
   Batch loading (20 blocks): 221.62µs
@@ -18,7 +18,7 @@ The batch loading is approximately **17.5x faster** than individual block loadin
 
 ### Range Query Performance
 
-```
+```bash
 Testing range query performance:
   Traditional range query: 7.981µs
   Optimized range query: 191.598µs
@@ -26,7 +26,7 @@ Testing range query performance:
 
 ### Block Cache Benchmarks
 
-```
+```bash
 ==== Block Cache Benchmark ====
 Tests the performance improvement of using a block cache
 block_cache_operations/cache/miss
@@ -43,7 +43,7 @@ block_cache_operations/block/cached
 
 ### Main I/O Bottlenecks
 
-1. **Full Run Loading for Block Access**: 
+1. **Full Run Loading for Block Access**:
    - In `FileStorage::load_block`, the entire run is loaded when only a specific block is needed
    - This is inefficient as noted in the TODO on lines 605-607 of `storage.rs`
 

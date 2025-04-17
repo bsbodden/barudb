@@ -116,30 +116,31 @@ Different levels of the LSM tree have different performance characteristics:
 * **L3+**: Less frequently accessed, higher compression ratio is beneficial
 
 The default configuration uses:
-- No compression for memtable (in-memory data)
-- Bit-packing for L0 (good balance of speed and compression)
-- Bit-packing for lower levels (with larger block sizes)
+* No compression for memtable (in-memory data)
+* Bit-packing for L0 (good balance of speed and compression)
+* Bit-packing for lower levels (with larger block sizes)
 
 ### Implementation Architecture
 
 The compression system is built around three key components:
 
 1. **CompressionStrategy Trait**: An interface implemented by all compression algorithms, providing:
-   - `compress(&self, data: &[u8]) -> Result<Vec<u8>>`: Transforms uncompressed data into a compressed format.
-   - `decompress(&self, data: &[u8]) -> Result<Vec<u8>>`: Reconstructs the original data from compressed data.
-   - `estimate_compressed_size(&self, data: &[u8]) -> usize`: Provides a quick estimate of compression ratio.
+   * `compress(&self, data: &[u8]) -> Result<Vec<u8>>`: Transforms uncompressed data into a compressed format.
+   * `decompress(&self, data: &[u8]) -> Result<Vec<u8>>`: Reconstructs the original data from compressed data.
+   * `estimate_compressed_size(&self, data: &[u8]) -> usize`: Provides a quick estimate of compression ratio.
 
 2. **CompressionFactory**: Creates compression strategy instances based on type:
+
    ```rust
    // Create a compression strategy by type
    let compressor = CompressionFactory::create(CompressionType::BitPack);
    ```
 
 3. **Block-level Integration**: Compression is integrated at the block level to maintain data integrity:
-   - Each block is serialized with headers and data
-   - Checksums are calculated to verify data integrity
-   - The entire block (including headers) is compressed
-   - Padding is applied to ensure data alignment for compression algorithms
+   * Each block is serialized with headers and data
+   * Checksums are calculated to verify data integrity
+   * The entire block (including headers) is compressed
+   * Padding is applied to ensure data alignment for compression algorithms
 
 ### Block Size Impact
 
@@ -158,6 +159,7 @@ Key architectural decision in our implementation:
 1. **Data Alignment**: All compression algorithms require data to be a multiple of 16 bytes (the size of a key-value pair).
 
 2. **Padding Mechanism**: When serializing blocks, padding bytes are added after the checksum to maintain data integrity:
+
    ```rust
    // Calculate checksum before padding
    let checksum = xxhash_rust::xxh3::xxh3_64(&data);
@@ -171,6 +173,7 @@ Key architectural decision in our implementation:
    ```
 
 3. **Checksum Validation**: During deserialization, the system calculates where the checksum should be based on block structure, not just at the end of the data:
+
    ```rust
    // Calculate expected data size from header information
    let expected_size = header_size + (entry_count * 16) + 8; // +8 for checksum
@@ -195,20 +198,20 @@ BitPackCompression efficiently stores integers by using the minimum number of bi
 1. **Key Insight**: Most datasets don't need the full 64 bits to represent values, especially when they have a small range.
 
 2. **Algorithm**:
-   - Find the minimum and maximum values in the dataset
-   - Calculate the number of bits needed to represent the range (log2 of range)
-   - Store the base value (minimum) and offsets using only the required bits
-   - For sequential values, use a special encoding to further reduce size
+   * Find the minimum and maximum values in the dataset
+   * Calculate the number of bits needed to represent the range (log2 of range)
+   * Store the base value (minimum) and offsets using only the required bits
+   * For sequential values, use a special encoding to further reduce size
 
 3. **Optimizations**:
-   - Blocks of values are processed together to amortize overhead
-   - Automatic detection of sequential keys for additional compression
-   - Special handling for repeated values
+   * Blocks of values are processed together to amortize overhead
+   * Automatic detection of sequential keys for additional compression
+   * Special handling for repeated values
 
 4. **Performance Characteristics**:
-   - Best for: small-range integer data, sequential IDs, timestamp columns
-   - Compression ratios: 5-10x for sequential data, 3-5x for small-range data
-   - Speed: ~600-800µs compression, ~400-500µs decompression for 10K entries
+   * Best for: small-range integer data, sequential IDs, timestamp columns
+   * Compression ratios: 5-10x for sequential data, 3-5x for small-range data
+   * Speed: ~600-800µs compression, ~400-500µs decompression for 10K entries
 
 ### DeltaCompression
 
@@ -217,19 +220,19 @@ DeltaCompression encodes the differences between consecutive values:
 1. **Key Insight**: In sorted data (like LSM-Tree keys), consecutive values often have small differences.
 
 2. **Algorithm**:
-   - Store the first value directly
-   - For subsequent values, store only the difference from the previous value
-   - Use variable-length encoding for the deltas to save even more space
+   * Store the first value directly
+   * For subsequent values, store only the difference from the previous value
+   * Use variable-length encoding for the deltas to save even more space
 
 3. **Optimizations**:
-   - ZigZag encoding to efficiently represent signed differences
-   - Variable-length encoding (similar to Protocol Buffers) for the deltas
-   - Safe overflow handling for 64-bit values
+   * ZigZag encoding to efficiently represent signed differences
+   * Variable-length encoding (similar to Protocol Buffers) for the deltas
+   * Safe overflow handling for 64-bit values
 
 4. **Performance Characteristics**:
-   - Best for: sequential IDs, timestamps, sensor readings, anything with small step sizes
-   - Compression ratios: 7-8x for sequential data, 4-5x for small-delta data
-   - Speed: ~300-350µs compression, ~350-400µs decompression for 10K entries
+   * Best for: sequential IDs, timestamps, sensor readings, anything with small step sizes
+   * Compression ratios: 7-8x for sequential data, 4-5x for small-delta data
+   * Speed: ~300-350µs compression, ~350-400µs decompression for 10K entries
 
 ### DictionaryCompression
 
@@ -238,20 +241,20 @@ DictionaryCompression replaces repeated values with indices into a dictionary:
 1. **Key Insight**: Many real-world datasets contain significant value repetition.
 
 2. **Algorithm**:
-   - Count frequency of each key-value pair
-   - Build a dictionary of the most common values
-   - Replace values with dictionary indices when possible
-   - Use a special marker for values not in the dictionary
+   * Count frequency of each key-value pair
+   * Build a dictionary of the most common values
+   * Replace values with dictionary indices when possible
+   * Use a special marker for values not in the dictionary
 
 3. **Optimizations**:
-   - Frequency-based dictionary construction
-   - Support for partial dictionary matches
-   - Adaptive dictionary size based on data characteristics
+   * Frequency-based dictionary construction
+   * Support for partial dictionary matches
+   * Adaptive dictionary size based on data characteristics
 
 4. **Performance Characteristics**:
-   - Best for: log data, categorical data, data with high repetition
-   - Compression ratios: 1.5-1.6x for repeated data, <1x for random data (slight overhead)
-   - Speed: ~6-10ms compression, ~400-500µs decompression for 10K entries
+   * Best for: log data, categorical data, data with high repetition
+   * Compression ratios: 1.5-1.6x for repeated data, <1x for random data (slight overhead)
+   * Speed: ~6-10ms compression, ~400-500µs decompression for 10K entries
 
 ## Experimental Results
 
@@ -289,18 +292,21 @@ Repeated Data (160000 bytes):
 We provide comprehensive testing infrastructure:
 
 1. **Basic Unit Tests**:
+
    ```bash
    # Test all compression algorithms directly
    cargo test --test compression_test
    ```
 
 2. **Integration Tests**:
+
    ```bash
    # Test LSM Tree with all compression types
    cargo test --test compression_test test_all_compression_types -- --nocapture
    ```
 
 3. **Performance Benchmarks**:
+
    ```bash
    # Run complete benchmarks across all compression types and data patterns
    cargo test --test compression_test test_compression_strategies -- --ignored --nocapture

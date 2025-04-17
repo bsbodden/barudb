@@ -6,7 +6,7 @@ This document provides a comprehensive overview of the Bloom filter implementati
 
 Our LSM tree project includes three distinct Bloom filter implementations:
 
-1. **Custom Bloom Filter** (`Bloom` in `bloom/mod.rs`): 
+1. **Custom Bloom Filter** (`Bloom` in `bloom/mod.rs`):
    - Our custom cache-efficient implementation with optimized memory layout
    - Features double-probing, cache-line alignment, and batch operations
    - Optimized for both modern hardware and concurrent access patterns
@@ -26,6 +26,7 @@ Our LSM tree project includes three distinct Bloom filter implementations:
 We conducted extensive benchmarks to compare the performance of different implementations across three key metrics:
 
 ### Insert Performance (10,000 keys)
+
 | Implementation               | Time (μs) | Relative Performance |
 |-----------------------------|-----------|---------------------|
 | Custom Bloom Insert         | 129.52    | Baseline            |
@@ -36,6 +37,7 @@ We conducted extensive benchmarks to compare the performance of different implem
 | FastBloom Insert            | 117.68    | 1.10x faster        |
 
 ### Lookup Performance (10,000 keys)
+
 | Implementation               | Time (μs) | Relative Performance |
 |-----------------------------|-----------|---------------------|
 | Custom Bloom Lookup         | 94.89     | Baseline            |
@@ -45,6 +47,7 @@ We conducted extensive benchmarks to compare the performance of different implem
 | FastBloom Lookup            | 130.36    | 1.37x slower        |
 
 ### False Positive Testing (10,000 keys)
+
 | Implementation               | Time (μs) | Relative Performance |
 |-----------------------------|-----------|---------------------|
 | Custom Bloom FP Test        | 98.60     | Baseline            |
@@ -53,7 +56,8 @@ We conducted extensive benchmarks to compare the performance of different implem
 | SpeedDB Bloom FP Test       | 100.77    | 1.02x slower        |
 | FastBloom FP Test           | ~131      | ~1.33x slower       |
 
-### Key Observations:
+### Key Observations
+
 1. Our custom Bloom filter with batch operations outperforms all other implementations
 2. The concurrent batch insert mode provides the most significant performance improvement (4.28x)
 3. Batch operations consistently deliver 4x+ performance improvements for all operations
@@ -78,6 +82,7 @@ let len = blocks * (block_bits / 64);
 ```
 
 This approach ensures:
+
 - Bloom filter data is aligned to cache line boundaries (typically 64 bytes)
 - Memory access patterns minimize cache line crossings
 - Power-of-2 sizing enables fast bit masking instead of modulo operations
@@ -119,6 +124,7 @@ fn double_probe(&self, h32: u32, base_offset: usize) -> bool {
 ```
 
 Benefits of this approach:
+
 - Setting two bits per probe effectively doubles the hash function count
 - Improved false positive rate for the same number of probes
 - Controlled stepping (offset.wrapping_add(7)) maintains cache locality
@@ -183,6 +189,7 @@ pub fn add_hash_batch(&self, hashes: &[u32], concurrent: bool) {
 ```
 
 Key optimizations in batch operations:
+
 1. **Two-phase approach**: Separates prefetch from actual processing
 2. **Hardware prefetching**: Explicitly prefetches cache lines before access
 3. **Offset precomputation**: Calculates all offsets ahead of time to improve pipelining
@@ -190,6 +197,7 @@ Key optimizations in batch operations:
 5. **Memory access patterns**: Optimized for modern CPU cache behavior
 
 Performance improvements:
+
 - Lookup operations: 4.10x faster (75.6% improvement)
 - Insert operations: 1.19x to 4.28x faster (16.2% to 76.7% improvement)
 - False positive testing: 4.21x faster (76.2% improvement)
@@ -239,6 +247,7 @@ fn calculate_monkey_bits_per_entry(level: usize, fanout: f64) -> f64 {
 ```
 
 The Monkey optimization provides:
+
 - Memory-efficient Bloom filters with bits per key tailored to access frequency
 - Higher levels (accessed more frequently) get more bits per key
 - Lower levels (accessed less frequently) get fewer bits per key
@@ -286,12 +295,14 @@ pub fn may_contain(&self, hash1: u32, hash2: u32) -> bool {
 ```
 
 Key differences from our custom implementation:
+
 1. Uses FastRange32 for modulo avoidance instead of bit masking
 2. Employs a linear probing pattern with a fixed delta
 3. Does not use the double-probing technique
 4. Has limited batch operation support
 
 Our custom implementation outperforms the RocksDB port by:
+
 - 1.79x for insertions
 - 1.74x for lookups
 - ~1.67x for false positive testing
@@ -325,11 +336,13 @@ pub fn may_contain(&self, hash: u32) -> bool {
 ```
 
 Key differences from our custom implementation:
+
 1. Uses XOR-based probe pattern
 2. Fixed 64-bit word size with different masking strategy
 3. Different approach to cache-line alignment
 
 Performance comparison:
+
 - Roughly comparable performance for individual operations
 - Our custom batch operations outperform SpeedDB by 3-4x
 
@@ -340,6 +353,7 @@ Performance comparison:
 Batch operations should be used when:
 
 1. **Range Queries**: When checking multiple keys in a range:
+
    ```rust
    // When checking multiple keys at once (e.g., in a range query):
    let keys: Vec<u32> = get_keys_for_range(...);
@@ -359,6 +373,7 @@ Batch operations should be used when:
    ```
 
 2. **Bulk Loading**: When inserting multiple keys at once:
+
    ```rust
    // When bulk loading data:
    let keys: Vec<u32> = collect_keys_for_bulk_load(...);
@@ -377,11 +392,13 @@ Batch operations should be used when:
 ### Choosing Concurrent Mode
 
 Use concurrent mode when:
+
 1. Multiple threads might write to the same Bloom filter
 2. You have a write-heavy workload
 3. Contention is a concern in your application
 
 The concurrent mode reduces contention by:
+
 1. First checking if bits are already set with a non-atomic load
 2. Only performing the more expensive atomic update if needed
 3. This dramatically reduces contention in high-throughput scenarios

@@ -11,6 +11,7 @@ Bit-packing is a compression technique that stores integers using the minimum nu
 3. **Same-value data**: Repeated identical values (e.g., default values, status flags)
 
 Our implementation achieves dramatic compression ratios for these patterns:
+
 - All-same-value data: **57.6x compression** (98% space reduction)
 - Sequential keys: **11.4x compression** (91% space reduction)
 - Small-range data: **8.4x compression** (88% space reduction)
@@ -79,6 +80,7 @@ Decompression is the reverse process:
 ### Block Size Selection
 
 The default block size of 1024 entries was chosen based on several factors:
+
 - Large enough for effective compression patterns to emerge
 - Small enough for efficient memory utilization
 - Balances compression ratio with CPU overhead
@@ -88,7 +90,7 @@ The default block size of 1024 entries was chosen based on several factors:
 
 The implementation prioritizes detecting and optimizing for common data patterns:
 
-1. **All-Same Value Detection**: 
+1. **All-Same Value Detection**:
    - Simple equality check against min/max values
    - Very fast to detect and provides maximum compression
 
@@ -105,6 +107,7 @@ The implementation prioritizes detecting and optimizing for common data patterns
 ### Fallback Strategy
 
 For data that doesn't fit these patterns, the algorithm:
+
 1. Calculates the minimum bits needed based on data range
 2. Uses this for general bit-packing if worthwhile
 3. Falls back to uncompressed storage if compression would be ineffective
@@ -114,6 +117,7 @@ This ensures we never make data larger through compression.
 ### Binary Format Design
 
 The binary format was designed for:
+
 - **Self-describing**: All necessary metadata in the header
 - **Efficient decoding**: Minimal bit manipulation during decompression
 - **Robustness**: Handles edge cases and corrupt data

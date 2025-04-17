@@ -43,6 +43,7 @@ This document provides a performance comparison between the two storage implemen
 ## Implementation Differences
 
 ### FileStorage
+
 - Creates one file per run
 - Simple implementation, easy to understand
 - Efficient for large runs
@@ -50,6 +51,7 @@ This document provides a performance comparison between the two storage implemen
 - High file system overhead for many small runs
 
 ### LSFStorage
+
 - Combines multiple runs into log segments
 - More complex implementation with index maintenance
 - More efficient for many small runs

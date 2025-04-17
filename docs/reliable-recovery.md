@@ -88,13 +88,13 @@ Potential enhancements based on recent research include:
 
 [2] Dong, S., Callaghan, M., Galanis, L., Borthakur, D., Savor, T., & Strum, M. (2017, May). Optimizing space amplification in RocksDB. In CIDR (Vol. 3, p. 3).
 
-[3] Ghemawat, S., & Dean, J. (2011). LevelDB. https://github.com/google/leveldb
+[3] Ghemawat, S., & Dean, J. (2011). LevelDB. <https://github.com/google/leveldb>
 
 [4] Andersen, D. G., Franklin, J., Kaminsky, M., Phanishayee, A., Tan, L., & Vasudevan, V. (2009, October). FAWN: A fast array of wimpy nodes. In Proceedings of the ACM SIGOPS 22nd symposium on Operating systems principles (pp. 1-14).
 
 [5] Haerder, T., & Reuter, A. (1983). Principles of transaction-oriented database recovery. ACM Computing Surveys (CSUR), 15(4), 287-317.
 
-[6] Cock, D., van Dijk, G., Hopwood, N., & Robinson, D. (2020). Pebble: A RocksDB-inspired key-value store written in Go. https://github.com/cockroachdb/pebble
+[6] Cock, D., van Dijk, G., Hopwood, N., & Robinson, D. (2020). Pebble: A RocksDB-inspired key-value store written in Go. <https://github.com/cockroachdb/pebble>
 
 [7] Cahill, M. J., Röhm, U., & Fekete, A. D. (2009, March). Serializable isolation for snapshot databases. In Proceedings of the 2008 ACM SIGMOD international conference on Management of data (pp. 729-738).
 
