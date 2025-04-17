@@ -229,6 +229,66 @@ impl Bloom {
     #[cfg(not(target_arch = "x86_64"))]
     pub fn prefetch(&self, _h32: u32) {}
 
+    /// Process multiple hash values in a batch for better performance
+    /// 
+    /// This method optimizes processing of multiple hash values by:
+    /// 1. Prefetching cache lines in advance
+    /// 2. Computing all offsets ahead of time to allow for better CPU instruction pipelining
+    /// 
+    /// # Arguments
+    /// * `hashes` - Slice of 32-bit hash values to check
+    /// * `results` - Output slice to store results (must be same length as hashes)
+    #[inline]
+    pub fn may_contain_batch(&self, hashes: &[u32], results: &mut [bool]) {
+        assert_eq!(hashes.len(), results.len(), "Hashes and results slices must be the same length");
+        
+        // Prefetch phase - compute offsets and prefetch cache lines
+        let mut offsets = Vec::with_capacity(hashes.len());
+        for &hash in hashes {
+            let offset = self.prepare_hash(hash);
+            self.prefetch(hash);
+            offsets.push(offset as usize);
+        }
+        
+        // Process phase - check each hash
+        for (i, &hash) in hashes.iter().enumerate() {
+            results[i] = self.double_probe(hash, offsets[i]);
+        }
+    }
+
+    /// Add multiple hash values in a batch for better performance
+    /// 
+    /// # Arguments
+    /// * `hashes` - Slice of 32-bit hash values to add to the filter
+    /// * `concurrent` - If true, use concurrent add operations with contention reduction
+    #[inline]
+    pub fn add_hash_batch(&self, hashes: &[u32], concurrent: bool) {
+        // Prefetch phase - compute offsets and prefetch cache lines
+        let mut offsets = Vec::with_capacity(hashes.len());
+        for &hash in hashes {
+            let offset = self.prepare_hash(hash);
+            self.prefetch(hash);
+            offsets.push(offset as usize);
+        }
+        
+        // Process phase - add each hash
+        if concurrent {
+            for (i, &hash) in hashes.iter().enumerate() {
+                self.add_hash_inner(hash, offsets[i], |ptr, mask| {
+                    if (ptr.load(Ordering::Relaxed) & mask) != mask {
+                        ptr.fetch_or(mask, Ordering::Relaxed);
+                    }
+                });
+            }
+        } else {
+            for (i, &hash) in hashes.iter().enumerate() {
+                self.add_hash_inner(hash, offsets[i], |ptr, mask| {
+                    ptr.fetch_or(mask, Ordering::Relaxed);
+                });
+            }
+        }
+    }
+
     /// Calculate theoretical false positive rate for the current configuration.
     pub fn theoretical_fp_rate(&self, num_entries: usize) -> f64 {
         let bits_per_key = (self.len * 64) as f64 / num_entries as f64;
@@ -473,6 +533,87 @@ mod tests {
 
         assert!(!bloom.may_contain(3));
         assert!(!bloom.may_contain(99));
+    }
+    
+    #[test]
+    fn test_batch_operations() {
+        // Test both batch lookup and insert
+        let bloom = Bloom::new(1000, 6);
+        let test_size = 100;
+        
+        // Test batch inserts - standard mode
+        let items_to_add: Vec<u32> = (0..test_size as u32).collect();
+        bloom.add_hash_batch(&items_to_add, false);
+        
+        // Verify all items were added
+        for i in 0..test_size as u32 {
+            assert!(bloom.may_contain(i), "Item {} should be in filter after batch add", i);
+        }
+        
+        // Test batch lookup
+        let items_to_check: Vec<u32> = (0..(test_size * 2) as u32).collect();
+        let mut results = vec![false; items_to_check.len()];
+        bloom.may_contain_batch(&items_to_check, &mut results);
+        
+        // Verify correct results
+        for i in 0..test_size {
+            assert!(results[i], "Item {} should be found in batch lookup", i);
+        }
+        
+        // Create a new bloom filter to test concurrent mode
+        let bloom_concurrent = Bloom::new(1000, 6);
+        bloom_concurrent.add_hash_batch(&items_to_add, true);
+        
+        // Verify all items were added in concurrent mode
+        for i in 0..test_size as u32 {
+            assert!(bloom_concurrent.may_contain(i), "Item {} should be in filter after concurrent batch add", i);
+        }
+        
+        // Test batch false positive behavior
+        let likely_fp_items: Vec<u32> = (1_000_000..1_000_000 + 1000).collect();
+        let mut fp_results = vec![false; likely_fp_items.len()];
+        
+        bloom.may_contain_batch(&likely_fp_items, &mut fp_results);
+        
+        // There should be some false positives but not too many
+        let fp_count = fp_results.iter().filter(|&&x| x).count();
+        println!("False positive rate in batch mode: {:.4}%", fp_count as f64 * 100.0 / likely_fp_items.len() as f64);
+        
+        // We expect some false positives (>0) but not too many (<20%)
+        assert!(fp_count > 0, "Should have at least some false positives");
+        assert!(fp_count < likely_fp_items.len() / 5, "False positive rate too high: {}/{}", fp_count, likely_fp_items.len());
+        
+        // Test batch prefetching behavior by measuring performance
+        let large_set: Vec<u32> = (0..10000).collect();
+        
+        // Warm up
+        let mut dummy_results = vec![false; large_set.len()];
+        bloom.may_contain_batch(&large_set, &mut dummy_results);
+        
+        // Measure batch performance
+        let start = Instant::now();
+        let mut batch_results = vec![false; large_set.len()];
+        bloom.may_contain_batch(&large_set, &mut batch_results);
+        let batch_time = start.elapsed();
+        
+        // Measure individual lookups
+        let start = Instant::now();
+        let mut indiv_results = vec![false; large_set.len()];
+        for (i, &item) in large_set.iter().enumerate() {
+            indiv_results[i] = bloom.may_contain(item);
+        }
+        let individual_time = start.elapsed();
+        
+        println!("Batch lookup time: {:?} for {} items", batch_time, large_set.len());
+        println!("Individual lookup time: {:?} for {} items", individual_time, large_set.len());
+        println!("Speed improvement: {:.2}x", individual_time.as_nanos() as f64 / batch_time.as_nanos() as f64);
+        
+        // Results should be identical
+        assert_eq!(batch_results, indiv_results, "Batch and individual results should match");
+        
+        // Batch lookup should generally be faster, though this is not a strict requirement
+        // since timing can vary - we're just checking that it's at least reasonably fast
+        println!("Batch vs individual lookups - expect batching to be significantly faster");
     }
 
     #[test]

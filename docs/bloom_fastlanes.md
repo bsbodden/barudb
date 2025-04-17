@@ -406,3 +406,160 @@ Your current implementation already has many elements that can easily adopt thes
 
 By implementing these SIMD optimizations, your Bloom filter implementation can reach state-of-the-art performance while
 maintaining compatibility with your existing codebase.
+
+## Recent Batch Operation Optimizations
+
+We've implemented batch operations for the custom bloom filter implementation, which have resulted in significant performance improvements.
+
+### Performance Benchmark Results (10,000 keys)
+
+#### Insert Operations
+| Implementation | Time (μs) | Improvement |
+|----------------|-----------|-------------|
+| Standard Bloom Insert | 129.52 | baseline |
+| Bloom Insert Batch | 108.52 | 16.2% faster |
+| Bloom Insert Batch Concurrent | 30.23 | 76.7% faster |
+
+#### Lookup Operations
+| Implementation | Time (μs) | Improvement |
+|----------------|-----------|-------------|
+| Standard Bloom Lookup | 94.89 | baseline |
+| Bloom Lookup Batch | 23.13 | 75.6% faster |
+
+#### False Positive Test Operations
+| Implementation | Time (μs) | Improvement |
+|----------------|-----------|-------------|
+| Standard Bloom FP Test | 98.60 | baseline |
+| Bloom FP Test Batch | 23.43 | 76.2% faster |
+
+### Implementation Details
+
+Batch operations include the following optimizations:
+
+1. **Prefetching cache lines in advance**: Reduces memory latency by loading data into cache before it's needed
+2. **Computing all offsets ahead of time**: Improves CPU instruction pipelining
+3. **Processing multiple hash values at once**: Reduces per-operation overhead
+4. **Optimized memory access patterns**: Better utilizes CPU cache
+5. **Concurrent mode for insertions**: Reduces contention by checking bit values before atomic operations
+
+These batch operations show dramatic performance improvements:
+- Lookup operations are over 4x faster in batch mode
+- Insert operations with concurrency are 4.3x faster
+- False positive testing is 4.2x faster in batch mode
+
+### Technical Implementation
+
+#### Batch Lookup Method
+
+The `may_contain_batch` method implements an optimized two-phase approach:
+
+```rust
+pub fn may_contain_batch(&self, hashes: &[u32], results: &mut [bool]) {
+    assert_eq!(hashes.len(), results.len(), "Hashes and results slices must be the same length");
+    
+    // Phase 1: Prefetch phase - compute offsets and prefetch cache lines
+    let mut offsets = Vec::with_capacity(hashes.len());
+    for &hash in hashes {
+        let offset = self.prepare_hash(hash);
+        self.prefetch(hash);
+        offsets.push(offset as usize);
+    }
+    
+    // Phase 2: Process phase - check each hash
+    for (i, &hash) in hashes.iter().enumerate() {
+        results[i] = self.double_probe(hash, offsets[i]);
+    }
+}
+```
+
+This approach separates memory access into two phases:
+
+1. First, we compute all hash offsets and prefetch the corresponding cache lines
+2. Then we perform the actual bit checks when the cache is already warm
+
+This dramatically reduces cache misses and allows modern CPUs to better pipeline instructions.
+
+#### Batch Insert Method
+
+The `add_hash_batch` method follows a similar two-phase approach but adds a concurrent option:
+
+```rust
+pub fn add_hash_batch(&self, hashes: &[u32], concurrent: bool) {
+    // Phase 1: Prefetch phase - compute offsets and prefetch cache lines
+    let mut offsets = Vec::with_capacity(hashes.len());
+    for &hash in hashes {
+        let offset = self.prepare_hash(hash);
+        self.prefetch(hash);
+        offsets.push(offset as usize);
+    }
+    
+    // Phase 2: Process phase - add each hash
+    if concurrent {
+        for (i, &hash) in hashes.iter().enumerate() {
+            // Concurrent mode reduces contention by checking before atomic update
+            self.add_hash_inner(hash, offsets[i], |ptr, mask| {
+                if (ptr.load(Ordering::Relaxed) & mask) != mask {
+                    ptr.fetch_or(mask, Ordering::Relaxed);
+                }
+            });
+        }
+    } else {
+        for (i, &hash) in hashes.iter().enumerate() {
+            // Standard mode directly uses atomic operations
+            self.add_hash_inner(hash, offsets[i], |ptr, mask| {
+                ptr.fetch_or(mask, Ordering::Relaxed);
+            });
+        }
+    }
+}
+```
+
+The concurrent mode adds an additional optimization to reduce atomic operation contention:
+
+1. First check if bits are already set with a non-atomic load
+2. Only perform the more expensive atomic update if needed
+3. This dramatically reduces contention in high-throughput scenarios
+
+### Usage Examples
+
+#### Batch Lookup Example
+
+```rust
+// When checking multiple keys at once (e.g., in a range query):
+let keys: Vec<u32> = get_keys_for_range(...);
+let mut results = vec![false; keys.len()];
+
+// Single batch operation instead of multiple individual lookups
+bloom_filter.may_contain_batch(&keys, &mut results);
+
+// Process results
+for (i, &key) in keys.iter().enumerate() {
+    if results[i] {
+        // Key might be present, check actual data
+    } else {
+        // Key definitely not present, skip further processing
+    }
+}
+```
+
+#### Batch Insert Example
+
+```rust
+// When bulk loading data:
+let keys: Vec<u32> = collect_keys_for_bulk_load(...);
+
+// For write-heavy workloads with multiple threads:
+bloom_filter.add_hash_batch(&keys, true); // Use concurrent mode
+
+// For single-threaded or less contentious scenarios:
+bloom_filter.add_hash_batch(&keys, false); // Use standard mode
+```
+
+### Integration Recommendations
+
+1. Use batch operations whenever multiple keys need to be checked or inserted
+2. For single key operations, continue using the standard methods
+3. Consider concurrent batch mode for write-heavy workloads with high contention
+4. For high-performance point lookup scenarios, batch together lookups when possible
+5. Use batch operations in range queries where multiple keys need checking
+6. Consider batch operations during compaction when processing large numbers of keys

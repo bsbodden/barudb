@@ -43,7 +43,7 @@ fn bench_bloom_filters(c: &mut Criterion) {
         let fast_bloom = BloomFilter::with_num_bits(total_bits)
             .expected_items(size);
 
-        // Benchmark insertions
+        // Benchmark individual insertions
         group.bench_function(BenchmarkId::new("speeddb_insert", size), |b| {
             b.iter(|| {
                 for item in &items {
@@ -78,6 +78,21 @@ fn bench_bloom_filters(c: &mut Criterion) {
             })
         });
 
+        // Benchmark batch insertions
+        let items_u32: Vec<u32> = items.iter().map(|s| s.parse::<u32>().unwrap()).collect();
+        
+        group.bench_function(BenchmarkId::new("bloom_insert_batch", size), |b| {
+            b.iter(|| {
+                bloom.add_hash_batch(&items_u32, false);
+            })
+        });
+        
+        group.bench_function(BenchmarkId::new("bloom_insert_batch_concurrent", size), |b| {
+            b.iter(|| {
+                bloom.add_hash_batch(&items_u32, true);
+            })
+        });
+
         // Prepare populated filters for lookups
         let mut populated_fast_bloom = fast_bloom.clone();
         for item in &items {
@@ -88,7 +103,7 @@ fn bench_bloom_filters(c: &mut Criterion) {
             rocks_bloom.add_hash(hash as u32, (hash >> 32) as u32);
         }
 
-        // Benchmark lookups
+        // Benchmark individual lookups
         group.bench_function(BenchmarkId::new("speeddb_lookup", size), |b| {
             b.iter(|| {
                 for item in &lookup_items {
@@ -119,6 +134,17 @@ fn bench_bloom_filters(c: &mut Criterion) {
                 for item in &lookup_items {
                     let _ = populated_fast_bloom.contains(item);
                 }
+            })
+        });
+        
+        // Benchmark batch lookups
+        let lookup_items_u32: Vec<u32> = lookup_items.iter().map(|s| s.parse::<u32>().unwrap()).collect();
+        
+        group.bench_function(BenchmarkId::new("bloom_lookup_batch", size), |b| {
+            b.iter(|| {
+                let mut results = vec![false; lookup_items_u32.len()];
+                bloom.may_contain_batch(&lookup_items_u32, &mut results);
+                results
             })
         });
 
@@ -174,6 +200,17 @@ fn bench_bloom_filters(c: &mut Criterion) {
                     }
                 }
                 fps
+            })
+        });
+        
+        // Benchmark batch false positives
+        let fp_items_u32: Vec<u32> = fp_items.iter().map(|s| s.parse::<u32>().unwrap()).collect();
+        
+        group.bench_function(BenchmarkId::new("bloom_fp_batch", size), |b| {
+            b.iter(|| {
+                let mut results = vec![false; fp_items_u32.len()];
+                bloom.may_contain_batch(&fp_items_u32, &mut results);
+                results.iter().filter(|&&r| r).count()
             })
         });
     }
