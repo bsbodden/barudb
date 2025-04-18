@@ -29,7 +29,7 @@ fn main() {
 /// Generate random keys
 fn generate_random_keys(count: usize, seed: u64) -> Vec<Key> {
     let mut rng = StdRng::seed_from_u64(seed);
-    let mut keys: Vec<Key> = (0..count).map(|_| rng.gen::<Key>()).collect();
+    let mut keys: Vec<Key> = (0..count).map(|_| rng.random::<Key>()).collect();
     keys.sort(); // Must be sorted for fence pointers
     keys
 }
@@ -41,10 +41,10 @@ fn generate_grouped_keys(count: usize, groups: usize, seed: u64) -> Vec<Key> {
     
     for _ in 0..count {
         // Select a group - use positive numbers for our group IDs
-        let group = rng.gen_range(0..groups) as Key;
+        let group = rng.random_range(0..groups) as Key;
         // Generate a key with the group as a prefix (multiply by 1 million to create distinct ranges)
         // This ensures each group has a separate range of values and preserves sortability
-        let key = group * 1_000_000 + rng.gen_range(0..1000) as Key;
+        let key = group * 1_000_000 + rng.random_range(0..1000) as Key;
         keys.push(key);
     }
     
@@ -65,12 +65,12 @@ fn run_benchmark(key_type: &str, keys: Vec<Key>, lookup_count: usize) {
     // and 50% keys generated randomly to ensure a good mix
     let lookup_keys: Vec<Key> = (0..lookup_count)
         .map(|_| {
-            if rng.gen_bool(0.5) {
+            if rng.random_bool(0.5) {
                 // Select a key from the existing set (guaranteed hit)
-                keys[rng.gen_range(0..keys.len())]
+                keys[rng.random_range(0..keys.len())]
             } else {
                 // Generate a completely random key (may or may not hit)
-                rng.gen::<Key>()
+                rng.random::<Key>()
             }
         })
         .collect();

@@ -12,7 +12,7 @@ fn sequential_keys(count: usize) -> Vec<Key> {
 /// Generate random keys
 fn random_keys(count: usize, seed: u64) -> Vec<Key> {
     let mut rng = StdRng::seed_from_u64(seed);
-    (0..count).map(|_| rng.gen::<Key>()).collect()
+    (0..count).map(|_| rng.random::<Key>()).collect()
 }
 
 /// Generate keys with common prefixes in groups
@@ -22,9 +22,9 @@ fn grouped_keys(count: usize, groups: usize, seed: u64) -> Vec<Key> {
     
     for _ in 0..count {
         // Select a group
-        let group = rng.gen_range(0..groups) as Key;
+        let group = rng.random_range(0..groups) as Key;
         // Generate a key with the group in the high bits
-        let key = (group << 32) | (rng.gen::<u32>() as Key);
+        let key = (group << 32) | (rng.random::<u32>() as Key);
         keys.push(key);
     }
     
@@ -525,8 +525,8 @@ fn test_optimization_effectiveness() {
     
     // Create keys with similar prefixes but scattered across bit patterns
     for _ in 0..1000 {
-        let prefix = rng.gen_range(0..16) as Key;
-        let key = (prefix << 60) | rng.gen::<u64>() as Key;
+        let prefix = rng.random_range(0..16) as Key;
+        let key = (prefix << 60) | rng.random::<u64>() as Key;
         keys.push(key);
     }
     

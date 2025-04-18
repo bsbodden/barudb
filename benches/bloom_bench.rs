@@ -6,7 +6,7 @@ use xxhash_rust::xxh3::xxh3_128;
 
 fn random_numbers(num: usize, seed: u64) -> Vec<u32> {
     let mut rng = StdRng::seed_from_u64(seed);
-    std::iter::repeat_with(|| rng.gen()).take(num).collect()
+    std::iter::repeat_with(|| rng.random()).take(num).collect()
 }
 
 fn bench_bloom_filters(c: &mut Criterion) {

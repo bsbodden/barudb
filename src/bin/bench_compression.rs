@@ -20,8 +20,8 @@ fn create_small_range_data(count: usize) -> Vec<u8> {
     let mut rng = StdRng::seed_from_u64(42); // Deterministic seed
     
     for _ in 0..count {
-        let key = 1000 + (rng.gen::<Key>() % 100);
-        let value = 2000 + (rng.gen::<Value>() % 50);
+        let key = 1000 + (rng.random::<Key>() % 100);
+        let value = 2000 + (rng.random::<Value>() % 50);
         data.extend_from_slice(&key.to_le_bytes());
         data.extend_from_slice(&value.to_le_bytes());
     }
@@ -33,8 +33,8 @@ fn create_random_data(count: usize) -> Vec<u8> {
     let mut rng = StdRng::seed_from_u64(42); // Deterministic seed
     
     for _ in 0..count {
-        let key = rng.gen::<Key>();
-        let value = rng.gen::<Value>();
+        let key = rng.random::<Key>();
+        let value = rng.random::<Value>();
         data.extend_from_slice(&key.to_le_bytes());
         data.extend_from_slice(&value.to_le_bytes());
     }

@@ -1145,8 +1145,8 @@ mod tests {
         
         // Add random fence pointers
         for i in 0..100 {
-            let min_key = rng.gen::<Key>();
-            let max_key = min_key + rng.gen_range(1..100);
+            let min_key = rng.random::<Key>();
+            let max_key = min_key + rng.random_range(1..100);
             fastlane.add(min_key, max_key, i);
         }
         
@@ -1159,8 +1159,8 @@ mod tests {
         // Try looking up some of the exact keys we inserted
         let mut rng2 = StdRng::seed_from_u64(42); // Reset RNG to get same sequence
         let found_count = (0..100).filter(|&_| {
-            let min_key = rng2.gen::<Key>();
-            let _ = rng2.gen_range(1..100); // Skip max key generation
+            let min_key = rng2.random::<Key>();
+            let _ = rng2.random_range(1..100); // Skip max key generation
             fastlane.find_block_for_key(min_key).is_some()
         }).count();
         

@@ -463,8 +463,8 @@ mod tests {
         let entries: Vec<(Key, Value)> = (0..100)
             .map(|i| {
                 // Small variations around sequential values
-                let key_offset = rng.gen_range(-10..=10);
-                let value_offset = rng.gen_range(-100..=100);
+                let key_offset = rng.random_range(-10..=10);
+                let value_offset = rng.random_range(-100..=100);
                 
                 (base + i as Key + key_offset, base * 2 + i as Value + value_offset)
             })

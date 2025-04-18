@@ -743,9 +743,9 @@ mod tests {
         let compression = BitPackCompression::default();
         
         // Random values won't compress as well
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let entries: Vec<(Key, Value)> = (0..100)
-            .map(|_| (rng.gen::<Key>(), rng.gen::<Value>()))
+            .map(|_| (rng.random::<Key>(), rng.random::<Value>()))
             .collect();
         let data = create_test_data(&entries);
         

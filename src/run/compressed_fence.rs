@@ -594,8 +594,8 @@ mod tests {
         
         // Add random fence pointers
         for i in 0..100 {
-            let min_key = rng.gen::<Key>();
-            let max_key = min_key + rng.gen_range(1..100);
+            let min_key = rng.random::<Key>();
+            let max_key = min_key + rng.random_range(1..100);
             compressed.add(min_key, max_key, i);
         }
         
