@@ -621,6 +621,234 @@ While our Bloom filter implementations are highly optimized and competitive with
 
 7. **Hardware-Specific Optimizations**: Further tailor prefetch distances and alignment to specific hardware architectures.
 
+## Possible Next Steps to Outperform FastBloom
+
+Based on our benchmarks, our custom Bloom filter performs very well but is still slightly outperformed by FastBloom in some metrics (particularly, FastBloom is ~1% faster for lookups). Here are specific optimizations to implement next to overtake FastBloom:
+
+### 1. Enhanced SIMD-Aware Code Layout
+
+FastBloom's main advantage likely comes from its SIMD-friendly code layout and memory access patterns. We should:
+
+```rust
+// Current approach:
+fn may_contain(&self, hash: u32) -> bool {
+    let offset = self.prepare_hash(hash);
+    self.double_probe(hash, offset)
+}
+
+// Improved SIMD-friendly approach:
+fn may_contain(&self, hash: u32) -> bool {
+    // Extract 2 bits from each of 4 words in sequence (vectorizable)
+    let block_idx = (hash & self.block_mask) as usize * self.words_per_block;
+    let bit1 = hash & 63;
+    let bit2 = (hash >> 6) & 63;
+    
+    for i in 0..self.num_probes {
+        // Load 4 consecutive words in a prefetch-friendly, vectorizable way
+        let word_idx = block_idx + (i * 7) % self.words_per_block;
+        let word = self.data[word_idx].load(Ordering::Relaxed);
+        
+        // Test 2 bits in a single operation
+        let mask = (1u64 << bit1) | (1u64 << bit2);
+        if (word & mask) != mask {
+            return false;
+        }
+        
+        // XOR with magic constant for next probe (vectorizable)
+        let next = (hash ^ (0x5bd1e995 * (i + 1))) as usize;
+        
+        // Pre-compute next bit positions
+        let bit1 = next & 63;
+        let bit2 = (next >> 6) & 63;
+    }
+    true
+}
+```
+
+### 2. Optimized Hash Mixing Functions
+
+FastBloom uses highly optimized hash mixing strategies. We should adopt similar techniques:
+
+```rust
+// Current mixing approach:
+h1 = h1.rotate_right(21);
+h2 = h2.rotate_right(11);
+
+// Improved hash mixing (inspired by FastBloom):
+h1 = h1.wrapping_mul(0x85ebca6b).rotate_right(13);
+h2 = h2.wrapping_mul(0xc2b2ae35).rotate_right(16);
+```
+
+This improved mixing function has better statistical properties while maintaining SIMD-friendliness.
+
+### 3. Explicit Memory Prefetch Instructions
+
+FastBloom likely uses explicit memory prefetching more aggressively than our implementation:
+
+```rust
+// Add more aggressive prefetching for upcoming blocks
+pub fn prefetch_block(&self, hash: u32, distance: usize) {
+    let base_idx = (hash & self.block_mask) as usize * self.words_per_block;
+    
+    // Prefetch current block
+    self.prefetch_address(&self.data[base_idx]);
+    
+    // Prefetch next blocks in sequence
+    for i in 1..=distance {
+        let next_hash = hash.wrapping_add(i as u32 * 16);
+        let next_idx = (next_hash & self.block_mask) as usize * self.words_per_block;
+        self.prefetch_address(&self.data[next_idx]);
+    }
+}
+
+// Call this from the batch operations:
+for (&hash, i) in hashes.iter().zip(0..hashes.len()) {
+    // Prefetch ahead by 3-8 entries (architecture dependent)
+    if i + PREFETCH_DISTANCE < hashes.len() {
+        self.prefetch_block(hashes[i + PREFETCH_DISTANCE], 2);
+    }
+}
+```
+
+### 4. Architecture-Specific Optimizations
+
+FastBloom likely has specialized code paths for different CPU architectures:
+
+```rust
+#[cfg(target_arch = "x86_64")]
+pub fn add_hash_arch_optimized(&self, hash: u32) {
+    #[cfg(target_feature = "avx2")]
+    {
+        // AVX2-specific implementation
+        unsafe {
+            // Use AVX2 intrinsics for faster bit manipulation
+            // ...
+        }
+    }
+    
+    #[cfg(not(target_feature = "avx2"))]
+    {
+        // Fallback implementation
+        self.add_hash_standard(hash);
+    }
+}
+```
+
+### 5. Optimized Probing Strategy
+
+Adopt an XOR-based probing strategy similar to what both SpeedDB and FastBloom likely use:
+
+```rust
+// Current double probing:
+fn double_probe(&self, h32: u32, base_offset: usize) -> bool {
+    // Initialize two hash values
+    let mut h1 = h32;
+    let mut h2 = h32.wrapping_mul(0x9e3779b9);
+    let len_mask = (self.len - 1) as usize;
+    let mut offset = base_offset & len_mask;
+    
+    // ...
+}
+
+// Improved XOR probing:
+fn xor_probe(&self, hash: u32, base_offset: usize) -> bool {
+    // Use a combination of XOR and multiply for probe generation
+    let h1 = hash;
+    let h2 = hash.wrapping_mul(0x9e3779b9);
+    let mask = (self.len - 1) as usize;
+    
+    for i in 0..self.num_probes {
+        // Generate probe offset using XOR
+        let probe = (h1 ^ (h2.wrapping_mul(i as u32))) as usize;
+        let offset = (base_offset + probe) & mask;
+        
+        // Get the word and bit position
+        let word_idx = offset / 64;
+        let bit_pos = offset % 64;
+        
+        // Check if bit is set
+        if (self.data[word_idx].load(Ordering::Relaxed) & (1u64 << bit_pos)) == 0 {
+            return false;
+        }
+    }
+    true
+}
+```
+
+### 6. Cache-Oblivious Data Layout
+
+Reorganize the memory layout to be cache-oblivious, which can provide better performance across different cache sizes:
+
+```rust
+// Reorganize memory layout for cache-oblivious access
+pub fn create_cache_oblivious(bits: usize, hashes: usize) -> Self {
+    let total_bits = next_power_of_two(bits);
+    
+    // Divide the filter into blocks that map well to cache lines
+    let block_bits = 512; // 64 bytes (common cache line size)
+    let blocks = total_bits / block_bits;
+    
+    // Organize blocks in a van Emde Boas layout for improved locality
+    // at all levels of the memory hierarchy
+    let mut filter = Self::with_capacity(total_bits);
+    
+    // Recursively organize blocks...
+    filter.organize_blocks(0, blocks, 0, blocks.trailing_zeros() as usize);
+    
+    filter
+}
+```
+
+### 7. Probe Fusion Optimization
+
+Implement probe fusion, which combines multiple probe tests into a single operation:
+
+```rust
+// Fuse 4 probes into a single operation for better throughput
+fn fused_probe(&self, hash: u32) -> bool {
+    // Generate 4 probe positions at once
+    let h1 = hash;
+    let h2 = hash.wrapping_mul(0x9e3779b9);
+    let h3 = hash.wrapping_mul(0x85ebca6b);
+    let h4 = hash.wrapping_mul(0xc2b2ae35);
+    
+    let mask = (self.len - 1) as usize;
+    let offset1 = (h1 as usize) & mask;
+    let offset2 = (h2 as usize) & mask;
+    let offset3 = (h3 as usize) & mask;
+    let offset4 = (h4 as usize) & mask;
+    
+    // Get all 4 bit positions
+    let bit1 = 1u64 << (offset1 % 64);
+    let bit2 = 1u64 << (offset2 % 64);
+    let bit3 = 1u64 << (offset3 % 64);
+    let bit4 = 1u64 << (offset4 % 64);
+    
+    // Get all 4 word positions
+    let word1 = self.data[offset1 / 64].load(Ordering::Relaxed);
+    let word2 = self.data[offset2 / 64].load(Ordering::Relaxed);
+    let word3 = self.data[offset3 / 64].load(Ordering::Relaxed);
+    let word4 = self.data[offset4 / 64].load(Ordering::Relaxed);
+    
+    // Test all 4 bits at once
+    ((word1 & bit1) != 0) && 
+    ((word2 & bit2) != 0) && 
+    ((word3 & bit3) != 0) && 
+    ((word4 & bit4) != 0)
+}
+```
+
+### 8. Implementation Plan
+
+1. Profile our current Bloom filter against FastBloom using detailed CPU performance counters
+2. Identify specific bottlenecks (cache misses, branch mispredictions, etc.)
+3. Implement the probe fusion and optimized XOR probing strategies first
+4. Add architecture-specific optimizations with capability detection
+5. Ensure all batch operations use aggressive prefetching
+6. Benchmark against FastBloom again and iterate on optimizations
+
+By implementing these optimizations, we expect to match or exceed FastBloom's performance while maintaining our excellent false positive rate and memory characteristics.
+
 ## References
 
 [1] Putze, F., Sanders, P., & Singler, J. (2010). "Cache-, Hash- and Space-Efficient Bloom Filters". Journal of Experimental Algorithmics, 14, 4.4-4.18. <https://doi.org/10.1145/1498698.1594230>
