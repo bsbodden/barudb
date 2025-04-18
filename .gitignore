@@ -8,3 +8,6 @@ generator/workload.txt
 data/**/*.bin
 data/**/*.meta
 test_recovery*/**/*
+sota/terarkdb_bench
+sota/wiredtiger_bench
+speedb/

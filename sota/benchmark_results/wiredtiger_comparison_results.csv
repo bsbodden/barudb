@@ -1,0 +1,4 @@
+db_name,operation,workload_size,throughput_ops_per_sec
+WiredTiger,put,100000,982945.89
+WiredTiger,get,100000,1879310.67
+WiredTiger,range,100000,29325.51

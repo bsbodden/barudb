@@ -1,0 +1,17 @@
+[tool.poetry]
+name = "sota-comparison"
+version = "0.1.0"
+description = "Performance comparison of LSM Tree vs RocksDB vs SpeedB"
+authors = ["Your Name <your.email@example.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.8"
+matplotlib = "^3.7.1"
+numpy = "^1.24.3"
+pandas = "^2.0.1"
+seaborn = "^0.12.2"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
