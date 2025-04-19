@@ -56,6 +56,22 @@ We conducted extensive benchmarks to compare the performance of different implem
 | SpeedDB Bloom FP Test       | 100.77    | 1.02x slower        |
 | FastBloom FP Test           | ~131      | ~1.33x slower       |
 
+### Implementation Characteristics Comparison
+
+| Feature                    | SpeedDB Bloom                 | RocksDB Bloom               | FastBloom Crate            | Custom Bloom                |
+|----------------------------|-------------------------------|-----------------------------|-----------------------------|------------------------------|
+| **Bit Allocation**         | Powers of 2 blocks           | 512-bit cache lines         | Fixed bit allocation        | Power of 2 sized blocks     |
+| **Probe Technique**        | Double probe (2 bits/probe)  | Single probes w/ cache align| Single bit probes          | Double probe (2 bits/probe) |
+| **Addressing**             | XOR-based addressing         | Cache line modulo           | Direct bit addressing      | Cache aligned addressing    |
+| **Hashing**                | 64-bit remix w/ constant     | 2× 32-bit hashes            | XXH3/MurMur3               | 64-bit hash w/ remixing     |
+| **Concurrency**            | Optimized atomic checks      | Atomic operations           | Thread-safe operations     | Check-before-update atomic  |
+| **Cache Optimization**     | XOR memory access pattern    | Cache line alignment        | Minimal cache patterns     | Cache line alignment        |
+| **Batch Operations**       | Yes, with prefetching        | Yes, with prefetching       | No built-in batching       | Yes, advanced batching      |
+| **Monkey Optimization**    | No                           | No                          | No                          | Yes (bits vary by level)    |
+| **Serialization**          | Yes                          | No                          | No                          | Yes                         |
+| **Prefetching**            | Multiple cache lines         | Single cache line           | No prefetching             | Advanced prefetching        |
+| **Size (bits/key)**        | 10-40, user configurable     | 10-40, user configurable    | Fixed 10-16                | 10-40, adaptive by level    |
+
 ### Key Observations
 
 1. Our custom Bloom filter with batch operations outperforms all other implementations
@@ -63,6 +79,7 @@ We conducted extensive benchmarks to compare the performance of different implem
 3. Batch operations consistently deliver 4x+ performance improvements for all operations
 4. Our custom implementation outperforms the RocksDB port by a significant margin
 5. The SpeedDB port performs comparably to our custom implementation for individual operations
+6. Our implementation is the only one to incorporate Monkey optimization for level-aware bit allocation
 
 ## Optimizations in Custom Bloom Filter
 
@@ -416,6 +433,11 @@ While our current Bloom filter implementations are highly optimized, several pot
 4. **Dynamic Sizing**: Implement adaptive sizing based on observed false positive rates
 
 5. **Hardware-Specific Optimizations**: Tailor prefetch distances and alignment to specific hardware
+
+6. **Implementation-Specific Improvements**:
+   - **Custom Bloom**: Add dedicated batch operations and enhance prefetching to cover more cache lines
+   - **RocksDB Bloom**: Rework the cache line addressing to be more efficient and add SIMD optimizations
+   - **SpeedDB Bloom**: Improve XOR-based addressing pattern and extend multiple cache line prefetching
 
 ## References and Resources
 
