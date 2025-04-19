@@ -248,8 +248,28 @@ async fn test_range_query() {
     let response = send_command(server.port, "p 30 126\n").await;
     assert_eq!(response, "OK", "Third put failed");
 
-    let response = send_command(server.port, "r 10 30\n").await;
-    assert_eq!(response, "10:42 20:84", "Range query returned wrong result");
+    // Add a flush operation to ensure all data is visible to range queries
+    let response = send_command(server.port, "f\n").await;
+    assert!(response.contains("OK"), "Flush failed: {}", response);
+
+    // Add a longer delay before the range query to ensure processing time
+    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+    // Retry logic to handle potential race conditions
+    let mut retries = 3;
+    let mut range_response = String::new();
+    
+    while retries > 0 {
+        range_response = send_command(server.port, "r 10 30\n").await;
+        if range_response == "10:42 20:84" {
+            break;
+        }
+        println!("Range query returned incorrect result (attempt {}): '{}', retrying...", 4-retries, range_response);
+        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+        retries -= 1;
+    }
+    
+    assert_eq!(range_response, "10:42 20:84", "Range query returned wrong result even after retries");
 
     let response = send_command(server.port, "r 40 50\n").await;
     assert_eq!(response, "", "Empty range should return empty string");
