@@ -2,6 +2,7 @@ use lsm_tree::run::{
     BlockCacheConfig, Error, FileStorage, Run, RunId, RunStorage, 
     StorageFactory, StorageOptions
 };
+use lsm_tree::run::cache_policies::CachePolicyType;
 use lsm_tree::types::{Key, StorageType};
 use std::time::Duration;
 use tempfile::tempdir;
@@ -433,6 +434,7 @@ fn test_block_cache() {
         max_capacity: 10,
         ttl: Duration::from_secs(10),
         cleanup_interval: Duration::from_secs(1),
+        policy_type: CachePolicyType::LRU,
     };
     
     let options = StorageOptions {

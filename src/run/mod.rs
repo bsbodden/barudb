@@ -1,5 +1,6 @@
 mod block;
 pub mod block_cache;
+pub mod cache_policies;
 pub mod compression;
 mod compressed_fence;
 mod fastlane_fence;
@@ -20,6 +21,7 @@ use crate::bloom::{Bloom, calculate_monkey_bits_per_entry};
 pub use block::{Block, BlockConfig};
 pub use block_cache::{BlockCache, BlockCacheConfig, BlockKey, CacheStats};
 pub use lock_free_block_cache::{LockFreeBlockCache, LockFreeBlockCacheConfig, LockFreeCacheStatsSnapshot as LockFreeCacheStats};
+pub use cache_policies::{CachePolicy, CachePolicyType, CachePolicyFactory};
 pub use compression::{
     CompressionStrategy, NoopCompression, BitPackCompression, 
     CompressionType, CompressionFactory, CompressionConfig,
