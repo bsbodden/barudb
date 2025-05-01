@@ -6,7 +6,7 @@ use tempfile::tempdir;
 
 fn random_keys(num: usize, seed: u64) -> Vec<Key> {
     let mut rng = StdRng::seed_from_u64(seed);
-    std::iter::repeat_with(|| rng.gen()).take(num).collect()
+    std::iter::repeat_with(|| rng.random()).take(num).collect()
 }
 
 fn bench_dynamic_sizing(c: &mut Criterion) {
@@ -36,16 +36,16 @@ fn bench_dynamic_sizing(c: &mut Criterion) {
     // Generate random existing keys for lookups (80% from first batch, 20% from second batch)
     let mut rng = StdRng::seed_from_u64(42);
     let existing_keys: Vec<Key> = (0..5000)
-        .map(|_| if rng.gen_bool(0.8) {
-                rng.gen_range(0..initial_data_size) as Key
+        .map(|_| if rng.random_bool(0.8) {
+                rng.random_range(0..initial_data_size) as Key
              } else {
-                rng.gen_range(initial_data_size..initial_data_size * 2) as Key
+                rng.random_range(initial_data_size..initial_data_size * 2) as Key
              })
         .collect();
     
     // Generate random non-existent keys for lookups - increased to 20,000 for better false positive detection
     let nonexistent_keys: Vec<Key> = (0..20000)
-        .map(|_| rng.gen_range(initial_data_size * 2 + 1000..initial_data_size * 3) as Key)
+        .map(|_| rng.random_range(initial_data_size * 2 + 1000..initial_data_size * 3) as Key)
         .collect();
     
     for (scenario_name, target_fp_rates) in test_scenarios {

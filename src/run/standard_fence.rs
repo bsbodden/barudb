@@ -1,6 +1,7 @@
 use crate::run::Result;
 use crate::types::Key;
 use std::cmp::Ordering;
+use std::any::Any;
 
 /// Standard fence pointer implementation without optimizations
 /// (to compare with optimized implementation)
@@ -15,6 +16,45 @@ pub struct StandardFencePointer {
 #[derive(Debug, Clone)]
 pub struct StandardFencePointers {
     pub pointers: Vec<StandardFencePointer>,
+}
+
+// Implement the interface for StandardFencePointers
+impl crate::run::FencePointersInterface for StandardFencePointers {
+    fn find_block_for_key(&self, key: Key) -> Option<usize> {
+        self.find_block_for_key(key)
+    }
+    
+    fn find_blocks_in_range(&self, start: Key, end: Key) -> Vec<usize> {
+        self.find_blocks_in_range(start, end)
+    }
+    
+    fn len(&self) -> usize {
+        self.len()
+    }
+    
+    fn is_empty(&self) -> bool {
+        self.is_empty()
+    }
+    
+    fn clear(&mut self) {
+        self.clear()
+    }
+    
+    fn add(&mut self, min_key: Key, max_key: Key, block_index: usize) {
+        self.add(min_key, max_key, block_index)
+    }
+    
+    fn optimize(&mut self) {
+        // Standard fence pointers don't need optimization
+    }
+    
+    fn memory_usage(&self) -> usize {
+        self.memory_usage()
+    }
+    
+    fn serialize(&self) -> crate::run::Result<Vec<u8>> {
+        self.serialize()
+    }
 }
 
 impl StandardFencePointers {
@@ -134,4 +174,17 @@ impl StandardFencePointers {
         
         Ok(Self { pointers })
     }
+    
+    /// Calculate memory usage in bytes
+    pub fn memory_usage(&self) -> usize {
+        std::mem::size_of::<Self>() + 
+        self.pointers.capacity() * std::mem::size_of::<StandardFencePointer>()
+    }
+    
+    /// For type conversion in trait implementations
+    pub fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
+
+// Legacy FencePointersInterface trait implementation removed

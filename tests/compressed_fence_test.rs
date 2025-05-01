@@ -1,4 +1,4 @@
-use lsm_tree::run::{CompressedFencePointers, AdaptivePrefixFencePointers, PrefixGroup};
+use lsm_tree::run::{CompressedFencePointers, AdaptivePrefixFencePointers, PrefixGroup, FencePointersInterface};
 use lsm_tree::types::Key;
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use std::collections::HashSet;

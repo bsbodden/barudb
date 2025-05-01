@@ -1,5 +1,5 @@
 use crate::run::{
-    Error, FencePointers, FilterStats, Result, Run, RunId, RunMetadata, RunStorage, StorageOptions, StorageStats
+    Error, AdaptiveFastLanePointers, FilterStats, Result, Run, RunId, RunMetadata, RunStorage, StorageOptions, StorageStats
 };
 use crate::run::storage::AsAny;
 use std::any::Any;
@@ -480,7 +480,7 @@ impl LSFStorage {
             blocks: run.blocks.clone(),
             filter: run.filter.box_clone(),
             compression: run.compression.clone_box(),
-            fence_pointers: FencePointers::new(), // Will be rebuilt during serialization
+            fence_pointers: AdaptiveFastLanePointers::new(), // Will be rebuilt during serialization
             id: Some(run_id),  // Set the ID before serialization
             level: run.level, // Preserve level information
             compression_stats: run.compression_stats.clone(),
@@ -921,7 +921,7 @@ impl RunStorage for LSFStorage {
             blocks: run.blocks.clone(),
             filter: run.filter.box_clone(),
             compression: run.compression.clone_box(),
-            fence_pointers: FencePointers::new(), // Will be rebuilt during serialization
+            fence_pointers: AdaptiveFastLanePointers::new(), // Will be rebuilt during serialization
             id: None,
             level: Some(level), // Set level information
             compression_stats: run.compression_stats.clone(),
@@ -953,7 +953,7 @@ impl RunStorage for LSFStorage {
             blocks: run_clone.blocks.clone(),
             filter: run_clone.filter.box_clone(),
             compression: run_clone.compression.clone_box(),
-            fence_pointers: FencePointers::new(), // Will be rebuilt during serialization
+            fence_pointers: AdaptiveFastLanePointers::new(), // Will be rebuilt during serialization
             id: Some(run_id),  // Set the ID before serialization
             level: run_clone.level, // Preserve level information
             compression_stats: run_clone.compression_stats.clone(),

@@ -1,4 +1,4 @@
-use crate::run::{Block, BlockCacheConfig, FencePointers, Result, Run};
+use crate::run::{Block, BlockCacheConfig, AdaptiveFastLanePointers, FencePointers, FencePointersInterface, Result, Run};
 use crate::types::{Key, StorageType};
 use std::any::Any;
 use std::path::PathBuf;
@@ -136,7 +136,7 @@ pub trait RunStorage: Send + Sync + AsAny {
     }
     
     /// Load run fence pointers only (without loading all blocks)
-    fn load_fence_pointers(&self, run_id: RunId) -> Result<FencePointers> {
+    fn load_fence_pointers(&self, run_id: RunId) -> Result<AdaptiveFastLanePointers> {
         // Default implementation: load the entire run and extract fence pointers
         let run = self.load_run(run_id)?;
         Ok(run.fence_pointers.clone())
@@ -327,7 +327,7 @@ impl RunStorage for FileStorage {
             blocks: run.blocks.clone(),
             filter: run.filter.box_clone(),
             compression: run.compression.clone_box(),
-            fence_pointers: FencePointers::new(), // Will be rebuilt during serialization
+            fence_pointers: AdaptiveFastLanePointers::new(), // Will be rebuilt during serialization
             id: Some(run_id),
             level: run.level, // Preserve level information
             compression_stats: run.compression_stats.clone(),
@@ -980,7 +980,7 @@ impl RunStorage for FileStorage {
     }
     
     // Override the default implementation for efficient fence pointer loading
-    fn load_fence_pointers(&self, run_id: RunId) -> Result<FencePointers> {
+    fn load_fence_pointers(&self, run_id: RunId) -> Result<AdaptiveFastLanePointers> {
         // Check if the run exists
         if !self.run_exists(run_id)? {
             return Err(super::Error::Storage(format!(
@@ -992,12 +992,23 @@ impl RunStorage for FileStorage {
         // Get metadata to check for stored fence pointers
         let metadata = self.get_run_metadata(run_id)?;
         
+        // Create an adaptive fence pointer implementation
+        let mut adaptive_fps = AdaptiveFastLanePointers::new();
+        
         // If we have fence pointers data in the metadata, use it
         if let Some(fence_data) = &metadata.fence_pointers_data {
             if !fence_data.is_empty() {
-                // Try to deserialize the fence pointers
+                // Try to deserialize the standard fence pointers first
                 match FencePointers::deserialize(fence_data) {
-                    Ok(fence_pointers) => return Ok(fence_pointers),
+                    Ok(fence_pointers) => {
+                        // Convert standard fence pointers to adaptive fence pointers
+                        for fp in fence_pointers.pointers {
+                            adaptive_fps.add(fp.min_key, fp.max_key, fp.block_index);
+                        }
+                        // Optimize the adaptive fence pointers
+                        adaptive_fps.optimize();
+                        return Ok(adaptive_fps);
+                    },
                     Err(e) => {
                         // Log the error but continue with fallback
                         if std::env::var("RUST_LOG").map(|v| v == "debug").unwrap_or(false) {

@@ -3,7 +3,34 @@ pub mod block_cache;
 pub mod cache_policies;
 pub mod compression;
 mod compressed_fence;
-mod fastlane_fence;
+// Modern high-performance implementations
+mod eytzinger_layout;
+mod adaptive_fastlane;
+
+pub use eytzinger_layout::EytzingerFencePointers;
+pub use adaptive_fastlane::AdaptiveFastLanePointers;
+
+// Type aliases for backward compatibility with tests 
+/// FastLaneFencePointers is now EytzingerFencePointers
+pub type FastLaneFencePointers = EytzingerFencePointers;
+/// SimpleFastLaneFencePointers is now just an alias to StandardFencePointers
+pub type SimpleFastLaneFencePointers = StandardFencePointers;
+/// TwoLevelFastLaneFencePointers is now just an alias to TwoLevelFencePointers
+pub type TwoLevelFastLaneFencePointers = TwoLevelFencePointers;
+/// Original FastLaneFencePointers implementation
+pub type OriginalFastLaneFencePointers = StandardFencePointers;
+/// Interface implemented by all fence pointer types
+pub trait FencePointersInterface {
+    fn find_block_for_key(&self, key: Key) -> Option<usize>;
+    fn find_blocks_in_range(&self, start: Key, end: Key) -> Vec<usize>;
+    fn len(&self) -> usize;
+    fn is_empty(&self) -> bool;
+    fn clear(&mut self);
+    fn add(&mut self, min_key: Key, max_key: Key, block_index: usize);
+    fn optimize(&mut self);
+    fn memory_usage(&self) -> usize;
+    fn serialize(&self) -> Result<Vec<u8>>;
+}
 mod fence;
 mod filter;
 mod lsf;
@@ -87,9 +114,6 @@ pub struct FilterStatsSnapshot {
 }
 pub use compressed_fence::{
     CompressedFencePointers, AdaptivePrefixFencePointers, PrefixGroup
-};
-pub use fastlane_fence::{
-    FastLaneFencePointers, AdaptiveFastLaneFencePointers, FastLaneGroup
 };
 pub use fence::FencePointers;
 pub use filter::{FilterStrategy, NoopFilter};
@@ -262,7 +286,7 @@ pub struct Run {
     pub blocks: Vec<Block>,
     pub filter: Box<dyn FilterStrategy>,
     pub compression: Box<dyn CompressionStrategy>,
-    pub fence_pointers: FencePointers,
+    pub fence_pointers: AdaptiveFastLanePointers,
     // Optional run ID when it comes from storage
     pub id: Option<RunId>,
     // Level information for debugging and optimization
@@ -320,7 +344,7 @@ impl Run {
     pub fn new_with_compression(data: Vec<(Key, Value)>, compression: Box<dyn CompressionStrategy>) -> Self {
         let block_config = BlockConfig::default();
         let mut blocks = Vec::new();
-        let mut fence_pointers = FencePointers::new();
+        let mut fence_pointers = AdaptiveFastLanePointers::new();
 
         // Create a basic filter with default values - 10 bits per entry, 6 hash functions
         let bits_per_entry = 10.0;
@@ -404,7 +428,7 @@ impl Run {
     ) -> Self {
         let block_config = BlockConfig::default();
         let mut blocks = Vec::new();
-        let mut fence_pointers = FencePointers::new();
+        let mut fence_pointers = AdaptiveFastLanePointers::new();
 
         // Determine if we're using dynamic bloom filter sizing
         let dynamic_bloom_enabled = config.as_ref()
@@ -1254,6 +1278,28 @@ impl Run {
             }
         }
         
+        // Double-check that the data is properly represented in blocks
+        // This is especially important for recovery tests
+        let mut block_keys = self.blocks.iter()
+            .flat_map(|block| block.entries.iter().map(|(k, _)| *k))
+            .collect::<Vec<_>>();
+        block_keys.sort();
+
+        let mut data_keys = self.data.iter()
+            .map(|(k, _)| *k)
+            .collect::<Vec<_>>();
+        data_keys.sort();
+
+        // Verify data integrity before serialization
+        if data_keys != block_keys {
+            println!("WARNING: Data keys and block keys don't match during serialization!");
+            println!("Data keys: {:?}", data_keys);
+            println!("Block keys: {:?}", block_keys);
+            
+            // Fix the issue by rebuilding blocks from data
+            self.rebuild_blocks()?;
+        }
+        
         // First, serialize all blocks
         let mut block_data = Vec::new();
         let mut block_offsets = Vec::new();
@@ -1309,7 +1355,7 @@ impl Run {
         // Serialize filter
         let filter_data = self.filter.serialize()?;
         
-        // Serialize fence pointers
+        // Serialize fence pointers 
         let fence_data = self.fence_pointers.serialize()?;
         
         // Now build the complete run data
@@ -1359,6 +1405,43 @@ impl Run {
         Ok(result)
     }
     
+    /// Helper function to rebuild blocks from data when inconsistencies are detected
+    fn rebuild_blocks(&mut self) -> Result<()> {
+        if self.data.is_empty() {
+            return Ok(());
+        }
+        
+        // Sort the data by key to ensure consistent block formation
+        let mut data = self.data.clone();
+        data.sort_by_key(|(k, _)| *k);
+        
+        // Clear existing blocks and filter
+        self.blocks.clear();
+        let mut new_filter = Box::new(crate::bloom::Bloom::new(
+            (data.len() as f64 * 10.0).ceil() as u32, 
+            6
+        )) as Box<dyn FilterStrategy>;
+        
+        // Create a new block and populate with all data
+        let mut block = Block::new();
+        for (k, v) in &data {
+            block.add_entry(*k, *v)?;
+            new_filter.add(k)?;
+        }
+        block.seal()?;
+        
+        // Replace the filter
+        self.filter = new_filter;
+        
+        // Add the new block
+        self.blocks.push(block);
+        
+        // Rebuild fence pointers
+        self.rebuild_fence_pointers();
+        
+        Ok(())
+    }
+    
     /// Rebuild fence pointers based on current blocks
     fn rebuild_fence_pointers(&mut self) {
         self.fence_pointers.clear();
@@ -1366,6 +1449,9 @@ impl Run {
         for (i, block) in self.blocks.iter().enumerate() {
             self.fence_pointers.add(block.header.min_key, block.header.max_key, i);
         }
+        
+        // Optimize adaptive fence pointers
+        self.fence_pointers.optimize();
     }
 
     /// Restore a run from serialized bytes
@@ -1490,7 +1576,7 @@ impl Run {
         
         // Fence pointers size and data (new in serialization format)
         // Use a try-catch approach to handle both old and new format
-        let mut fence_pointers = FencePointers::new();
+        let mut fence_pointers = AdaptiveFastLanePointers::new();
         
         // Only try to read fence pointers if there are enough bytes left
         if offset + 4 < bytes.len() {
@@ -1503,9 +1589,14 @@ impl Run {
                 let fence_data = &bytes[offset..offset + fence_size as usize];
                 offset += fence_size as usize;
                 
-                // Deserialize fence pointers
+                // Deserialize standard fence pointers and convert them
                 match FencePointers::deserialize(fence_data) {
-                    Ok(fp) => fence_pointers = fp,
+                    Ok(standard_fps) => {
+                        // Move all fence pointers to our adaptive implementation
+                        for fp in standard_fps.pointers {
+                            fence_pointers.add(fp.min_key, fp.max_key, fp.block_index);
+                        }
+                    },
                     Err(e) => {
                         if std::env::var("RUST_LOG").map(|v| v == "debug").unwrap_or(false) {
                             println!("Warning: Failed to deserialize fence pointers: {:?}, using empty fence pointers", e);
@@ -1645,7 +1736,7 @@ impl Run {
         // If fence pointers are empty, rebuild them from blocks
         if fence_pointers.is_empty() && !blocks.is_empty() {
             if std::env::var("RUST_LOG").map(|v| v == "debug").unwrap_or(false) {
-                println!("Building fence pointers from deserialized blocks");
+                println!("Building adaptive fence pointers from deserialized blocks");
             }
             for (i, block) in blocks.iter().enumerate() {
                 fence_pointers.add(block.header.min_key, block.header.max_key, i);
