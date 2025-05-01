@@ -3,7 +3,7 @@ use crate::run::lock_free_cache_policies::LockFreeCachePolicy;
 use crossbeam_skiplist::SkipMap;
 use std::sync::{Arc, atomic::{AtomicU8, AtomicUsize, Ordering}};
 use std::sync::Mutex;
-use std::time::{SystemTime, Duration};
+use std::time::{SystemTime, Duration, UNIX_EPOCH};
 use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
 use std::collections::hash_map::DefaultHasher;
@@ -114,7 +114,126 @@ impl LockFreeCountMinSketch {
     }
 }
 
-/// Cache entry for the TinyLFU policy with TTL support
+/// Time buckets for the TTL index
+const BUCKET_DURATION_SECS: u64 = 10; // 10 seconds per bucket - smaller buckets for finer granularity
+
+/// Time-bucketed TTL index for more efficient expiration scanning
+#[derive(Debug)]
+struct TimeBucketedTTLIndex {
+    /// Maps time buckets to their skipmap of entries
+    /// Using nested SkipMaps for fully lock-free concurrent access
+    buckets: SkipMap<u64, SkipMap<BlockKey, SystemTime>>,
+}
+
+impl TimeBucketedTTLIndex {
+    /// Create a new time-bucketed TTL index
+    fn new() -> Self {
+        Self {
+            buckets: SkipMap::new(),
+        }
+    }
+    
+    /// Calculate the bucket ID for a given timestamp
+    fn bucket_id(time: SystemTime) -> u64 {
+        let duration_since_epoch = time
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default();
+        
+        duration_since_epoch.as_secs() / BUCKET_DURATION_SECS
+    }
+    
+    /// Add an entry to the TTL index
+    fn add(&self, key: BlockKey, created_at: SystemTime) {
+        let bucket_id = Self::bucket_id(created_at);
+        
+        // Get or create bucket
+        if let Some(bucket_entry) = self.buckets.get(&bucket_id) {
+            // Bucket exists, add key to it
+            bucket_entry.value().insert(key, created_at);
+        } else {
+            // Create new bucket
+            let new_bucket = SkipMap::new();
+            new_bucket.insert(key, created_at);
+            self.buckets.insert(bucket_id, new_bucket);
+        }
+    }
+    
+    /// Remove an entry with the given creation time
+    fn remove(&self, key: &BlockKey, created_at: SystemTime) {
+        let bucket_id = Self::bucket_id(created_at);
+        
+        if let Some(bucket_entry) = self.buckets.get(&bucket_id) {
+            // Remove key from bucket
+            bucket_entry.value().remove(key);
+            
+            // If bucket is now empty, remove it
+            if bucket_entry.value().is_empty() {
+                self.buckets.remove(&bucket_id);
+            }
+        }
+    }
+    
+    /// Scan for entries that have expired based on the given TTL
+    fn scan_expired(&self, ttl: Duration) -> Vec<BlockKey> {
+        let now = SystemTime::now();
+        let expiration_threshold = now.checked_sub(ttl).unwrap_or(UNIX_EPOCH);
+        let threshold_bucket = Self::bucket_id(expiration_threshold);
+        
+        // Estimate capacity by sampling
+        let estimated_capacity = self.buckets.iter()
+            .take(5)
+            .map(|e| e.value().len())
+            .sum::<usize>()
+            .max(32);
+            
+        let mut expired_keys = Vec::with_capacity(estimated_capacity);
+        
+        // Collect keys from expired buckets
+        for bucket_entry in self.buckets.iter() {
+            let bucket_id = *bucket_entry.key();
+            
+            // Skip future buckets
+            if bucket_id > threshold_bucket {
+                continue;
+            }
+            
+            let bucket = bucket_entry.value();
+            
+            // Fast path for definitely expired buckets
+            if bucket_id < threshold_bucket {
+                // All entries in this bucket are definitely expired
+                for key_entry in bucket.iter() {
+                    expired_keys.push(*key_entry.key());
+                }
+            } else {
+                // For threshold bucket, check each timestamp
+                for key_entry in bucket.iter() {
+                    let created_at = *key_entry.value();
+                    if created_at <= expiration_threshold {
+                        expired_keys.push(*key_entry.key());
+                    }
+                }
+            }
+        }
+        
+        expired_keys
+    }
+    
+    /// Clear the TTL index
+    fn clear(&self) {
+        // Get all bucket IDs
+        let bucket_ids: Vec<u64> = self.buckets.iter()
+            .map(|entry| *entry.key())
+            .collect();
+            
+        // Remove each bucket
+        for id in bucket_ids {
+            self.buckets.remove(&id);
+        }
+    }
+}
+
+// Cache entry for the TinyLFU policy with TTL support
 #[derive(Debug, Clone)]
 struct CacheEntry {
     /// The cached block
@@ -158,8 +277,8 @@ pub struct LockFreeTinyLFUTTLPolicy {
     // Frequency sketch
     sketch: LockFreeCountMinSketch,
     
-    // TTL index - tracks entries by insertion time for efficient TTL expiration
-    ttl_index: SkipMap<SystemTime, BlockKey>,
+    // Optimized TTL index using time bucketing for efficient TTL expiration
+    ttl_index: TimeBucketedTTLIndex,
 }
 
 impl LockFreeTinyLFUTTLPolicy {
@@ -192,7 +311,7 @@ impl LockFreeTinyLFUTTLPolicy {
             
             sketch: LockFreeCountMinSketch::new(effective_capacity),
             
-            ttl_index: SkipMap::new(),
+            ttl_index: TimeBucketedTTLIndex::new(),
         }
     }
     
@@ -383,12 +502,12 @@ impl LockFreeTinyLFUTTLPolicy {
     
     /// Add an entry to the TTL index
     fn add_to_ttl_index(&self, key: BlockKey, created_at: SystemTime) {
-        self.ttl_index.insert(created_at, key);
+        self.ttl_index.add(key, created_at);
     }
     
     /// Remove an entry from the TTL index
-    fn remove_from_ttl_index(&self, created_at: SystemTime) {
-        self.ttl_index.remove(&created_at);
+    fn remove_from_ttl_index(&self, key: &BlockKey, created_at: SystemTime) {
+        self.ttl_index.remove(key, created_at);
     }
 }
 
@@ -467,7 +586,7 @@ impl LockFreeCachePolicy for LockFreeTinyLFUTTLPolicy {
                 let victim_block = victim_entry.value().block.clone();
                 
                 // Remove from TTL index
-                self.remove_from_ttl_index(victim_created_at);
+                self.remove_from_ttl_index(&victim_key, victim_created_at);
                 
                 // Check if victim has expired
                 if self.is_expired(victim_created_at) {
@@ -518,7 +637,7 @@ impl LockFreeCachePolicy for LockFreeTinyLFUTTLPolicy {
                         // Window victim has higher frequency, replace probation victim
                         if let Some(prob_victim_entry) = self.probation.remove(&prob_victim_key) {
                             // Remove probation victim from TTL index
-                            self.remove_from_ttl_index(prob_victim_entry.value().created_at);
+                            self.remove_from_ttl_index(&prob_victim_key, prob_victim_entry.value().created_at);
                             
                             // Add window victim to probation
                             self.probation.insert(victim_key, CacheEntry {
@@ -571,7 +690,7 @@ impl LockFreeCachePolicy for LockFreeTinyLFUTTLPolicy {
                                 let prot_victim_created_at = prot_victim_entry.value().created_at;
                                 
                                 // Remove protected victim from TTL index 
-                                self.remove_from_ttl_index(prot_victim_created_at);
+                                self.remove_from_ttl_index(&prot_victim_key, prot_victim_created_at);
                                 
                                 // Add window victim to protected
                                 self.protected.insert(victim_key, CacheEntry {
@@ -634,7 +753,7 @@ impl LockFreeCachePolicy for LockFreeTinyLFUTTLPolicy {
             }
             
             // Remove from TTL index
-            self.remove_from_ttl_index(entry.value().created_at);
+            self.remove_from_ttl_index(key, entry.value().created_at);
             
             return Some(entry.value().block.clone());
         }
@@ -647,7 +766,7 @@ impl LockFreeCachePolicy for LockFreeTinyLFUTTLPolicy {
             }
             
             // Remove from TTL index
-            self.remove_from_ttl_index(entry.value().created_at);
+            self.remove_from_ttl_index(key, entry.value().created_at);
             
             return Some(entry.value().block.clone());
         }
@@ -660,7 +779,7 @@ impl LockFreeCachePolicy for LockFreeTinyLFUTTLPolicy {
             }
             
             // Remove from TTL index
-            self.remove_from_ttl_index(entry.value().created_at);
+            self.remove_from_ttl_index(key, entry.value().created_at);
             
             return Some(entry.value().block.clone());
         }
@@ -732,13 +851,7 @@ impl LockFreeCachePolicy for LockFreeTinyLFUTTLPolicy {
     
     fn clear(&self) {
         // Clear the TTL index first
-        let ttl_keys: Vec<SystemTime> = self.ttl_index.iter()
-            .map(|entry| *entry.key())
-            .collect();
-            
-        for key in ttl_keys {
-            self.ttl_index.remove(&key);
-        }
+        self.ttl_index.clear();
         
         // Clear window
         let window_keys: Vec<BlockKey> = self.window.iter()
@@ -794,33 +907,81 @@ impl LockFreeCachePolicy for LockFreeTinyLFUTTLPolicy {
     }
     
     fn scan_expired(&self, ttl: Duration) -> Vec<BlockKey> {
-        let now = SystemTime::now();
-        let mut expired_keys = Vec::new();
-        
-        // Use the TTL index to efficiently find expired items
-        for entry in self.ttl_index.iter() {
-            let created_at = *entry.key();
-            let key = *entry.value();
-            
-            if now.duration_since(created_at).unwrap_or_default() > ttl {
-                expired_keys.push(key);
-            } else {
-                // Since entries are stored in time order, we can stop once we reach non-expired entries
-                break;
-            }
-        }
-        
-        expired_keys
+        // Use the time-bucketed TTL index for efficient scanning
+        self.ttl_index.scan_expired(ttl)
     }
     
     fn remove_expired(&self, ttl: Duration) -> usize {
         // Get all expired keys
         let expired_keys = self.scan_expired(ttl);
         let count = expired_keys.len();
+
+        if count == 0 {
+            return 0;
+        }
         
-        // Remove each expired key
-        for key in expired_keys {
-            self.remove(&key);
+        // Batch process in chunks for better efficiency
+        const BATCH_SIZE: usize = 64; // Appropriate batch size to balance overhead and throughput
+        
+        for chunk in expired_keys.chunks(BATCH_SIZE) {
+            // Process this batch of expired keys
+            // First collect entries from each segment to reduce lock contention
+            let mut window_entries = Vec::new();
+            let mut protected_entries = Vec::new();
+            let mut probation_entries = Vec::new();
+            
+            // Pre-collect entries by segment
+            for key in chunk {
+                if self.window.contains_key(key) {
+                    window_entries.push(*key);
+                } else if self.protected.contains_key(key) {
+                    protected_entries.push(*key);
+                } else if self.probation.contains_key(key) {
+                    probation_entries.push(*key);
+                }
+            }
+            
+            // Batch remove from window
+            if !window_entries.is_empty() {
+                let mut queue = self.window_queue.lock().unwrap();
+                for key in &window_entries {
+                    if let Some(entry) = self.window.remove(key) {
+                        // Remove from TTL index
+                        self.remove_from_ttl_index(key, entry.value().created_at);
+                        
+                        // Remove from queue (find all occurrences)
+                        queue.retain(|k| k != key);
+                    }
+                }
+            }
+            
+            // Batch remove from protected
+            if !protected_entries.is_empty() {
+                let mut queue = self.protected_queue.lock().unwrap();
+                for key in &protected_entries {
+                    if let Some(entry) = self.protected.remove(key) {
+                        // Remove from TTL index
+                        self.remove_from_ttl_index(key, entry.value().created_at);
+                        
+                        // Remove from queue (find all occurrences)
+                        queue.retain(|k| k != key);
+                    }
+                }
+            }
+            
+            // Batch remove from probation
+            if !probation_entries.is_empty() {
+                let mut queue = self.probation_queue.lock().unwrap();
+                for key in &probation_entries {
+                    if let Some(entry) = self.probation.remove(key) {
+                        // Remove from TTL index
+                        self.remove_from_ttl_index(key, entry.value().created_at);
+                        
+                        // Remove from queue (find all occurrences)
+                        queue.retain(|k| k != key);
+                    }
+                }
+            }
         }
         
         count
