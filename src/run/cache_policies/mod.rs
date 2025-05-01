@@ -57,6 +57,10 @@ pub enum CachePolicyType {
     LRU,
     /// TinyLFU eviction policy
     TinyLFU,
+    /// TinyLFU with TTL-based expiration
+    TinyLFUWithTTL,
+    /// Priority-based eviction policy
+    PriorityLFU,
 }
 
 impl CachePolicyFactory {
@@ -65,6 +69,8 @@ impl CachePolicyFactory {
         match policy_type {
             CachePolicyType::LRU => Box::new(LRUPolicy::new(capacity)),
             CachePolicyType::TinyLFU => Box::new(TinyLFUPolicy::new(capacity)),
+            CachePolicyType::TinyLFUWithTTL => Box::new(TinyLFUPolicy::new(capacity)), // Fallback to regular TinyLFU
+            CachePolicyType::PriorityLFU => Box::new(TinyLFUPolicy::new(capacity)),    // Fallback to regular TinyLFU
         }
     }
 }

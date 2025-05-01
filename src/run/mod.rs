@@ -11,6 +11,7 @@ mod standard_fence;
 mod storage;
 mod two_level_fence;
 pub mod lock_free_block_cache;
+pub mod lock_free_cache_policies;
 
 use crate::types::{Key, Value};
 use std::io;
@@ -22,6 +23,7 @@ pub use block::{Block, BlockConfig};
 pub use block_cache::{BlockCache, BlockCacheConfig, BlockKey, CacheStats};
 pub use lock_free_block_cache::{LockFreeBlockCache, LockFreeBlockCacheConfig, LockFreeCacheStatsSnapshot as LockFreeCacheStats};
 pub use cache_policies::{CachePolicy, CachePolicyType, CachePolicyFactory};
+pub use lock_free_cache_policies::{LockFreeCachePolicy, LockFreeCachePolicyFactory};
 pub use compression::{
     CompressionStrategy, NoopCompression, BitPackCompression, 
     CompressionType, CompressionFactory, CompressionConfig,
