@@ -1,0 +1,85 @@
+bloom_filters/speeddb_insert/1000
+                        time:   [13.010 µs 13.017 µs 13.023 µs]
+                        change: [-0.1070% -0.0026% +0.0851%] (p = 0.97 > 0.05)
+                        No change in performance detected.
+Found 4 outliers among 200 measurements (2.00%)
+  4 (2.00%) high mild
+bloom_filters/bloom_insert/1000
+                        time:   [18.490 µs 18.516 µs 18.548 µs]
+                        change: [-1.3538% -1.0307% -0.7513%] (p = 0.00 < 0.05)
+                        Change within noise threshold.
+Found 13 outliers among 200 measurements (6.50%)
+  8 (4.00%) high mild
+  5 (2.50%) high severe
+bloom_filters/rocksdb_insert/1000
+                        time:   [23.174 µs 23.187 µs 23.200 µs]
+                        change: [-0.0796% +0.0030% +0.0826%] (p = 0.94 > 0.05)
+                        No change in performance detected.
+Found 8 outliers among 200 measurements (4.00%)
+  5 (2.50%) high mild
+  3 (1.50%) high severe
+bloom_filters/fastbloom_insert/1000
+                        time:   [12.530 µs 12.545 µs 12.564 µs]
+                        change: [-1.8025% -1.6549% -1.4935%] (p = 0.00 < 0.05)
+                        Performance has improved.
+Found 13 outliers among 200 measurements (6.50%)
+  9 (4.50%) high mild
+  4 (2.00%) high severe
+bloom_filters/bloom_insert_batch/1000
+                        time:   [17.171 µs 17.178 µs 17.186 µs]
+                        change: [-0.0361% +0.0308% +0.0977%] (p = 0.36 > 0.05)
+                        No change in performance detected.
+Found 2 outliers among 200 measurements (1.00%)
+  2 (1.00%) high mild
+bloom_filters/bloom_insert_batch_concurrent/1000
+                        time:   [5.8303 µs 5.8347 µs 5.8397 µs]
+                        change: [-0.5268% -0.4180% -0.3037%] (p = 0.00 < 0.05)
+                        Change within noise threshold.
+Found 6 outliers among 200 measurements (3.00%)
+  3 (1.50%) high mild
+  3 (1.50%) high severe
+bloom_filters/speeddb_lookup/1000
+                        time:   [6.8696 µs 6.8732 µs 6.8770 µs]
+                        change: [-1.1243% -1.0404% -0.9619%] (p = 0.00 < 0.05)
+                        Change within noise threshold.
+bloom_filters/bloom_lookup/1000
+                        time:   [10.075 µs 10.096 µs 10.119 µs]
+                        change: [-1.3645% -1.1125% -0.8808%] (p = 0.00 < 0.05)
+                        Change within noise threshold.
+Found 2 outliers among 200 measurements (1.00%)
+  1 (0.50%) high mild
+  1 (0.50%) high severe
+bloom_filters/rocksdb_lookup/1000
+                        time:   [8.5408 µs 8.5531 µs 8.5671 µs]
+                        change: [+0.5983% +0.7400% +0.9227%] (p = 0.00 < 0.05)
+                        Change within noise threshold.
+Found 14 outliers among 200 measurements (7.00%)
+  8 (4.00%) high mild
+  6 (3.00%) high severe
+bloom_filters/fastbloom_lookup/1000
+                        time:   [6.9246 µs 6.9317 µs 6.9396 µs]
+                        change: [+2.4112% +2.6069% +2.8036%] (p = 0.00 < 0.05)
+                        Performance has regressed.
+Found 12 outliers among 200 measurements (6.00%)
+  3 (1.50%) high mild
+  9 (4.50%) high severe
+bloom_filters/bloom_lookup_batch/1000
+                        time:   [6.0655 µs 6.0713 µs 6.0776 µs]
+                        change: [-2.5558% -2.3688% -2.1970%] (p = 0.00 < 0.05)
+                        Performance has improved.
+Found 8 outliers among 200 measurements (4.00%)
+  1 (0.50%) low mild
+  3 (1.50%) high mild
+  4 (2.00%) high severe
+bloom_filters/speeddb_fp/1000
+                        time:   [98.958 µs 99.015 µs 99.073 µs]
+                        change: [-1.3616% -1.0891% -0.8474%] (p = 0.00 < 0.05)
+                        Change within noise threshold.
+Found 2 outliers among 200 measurements (1.00%)
+  2 (1.00%) high mild
+bloom_filters/bloom_fp/1000
+                        time:   [119.86 µs 119.96 µs 120.06 µs]
+Found 12 outliers among 200 measurements (6.00%)
+  4 (2.00%) low mild
+  6 (3.00%) high mild
+  2 (1.00%) high severe

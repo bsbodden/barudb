@@ -1,0 +1,14 @@
+filter_type,elements,min_ns,avg_ns,max_ns
+speeddb_insert,1000,13010.0,13017.0,13023.0
+bloom_insert,1000,18490.0,18516.0,18548.0
+rocksdb_insert,1000,23174.0,23187.0,23200.0
+fastbloom_insert,1000,12530.0,12545.0,12564.0
+bloom_insert_batch,1000,17171.0,17178.0,17186.0
+bloom_insert_batch_concurrent,1000,5830.3,5834.7,5839.7
+speeddb_lookup,1000,6869.6,6873.2,6877.0
+bloom_lookup,1000,10075.0,10096.0,10119.0
+rocksdb_lookup,1000,8540.800000000001,8553.1,8567.1
+fastbloom_lookup,1000,6924.599999999999,6931.7,6939.6
+bloom_lookup_batch,1000,6065.5,6071.3,6077.6
+speeddb_fp,1000,98958.0,99015.0,99073.0
+bloom_fp,1000,119860.0,119960.0,120060.0

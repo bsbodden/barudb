@@ -1,0 +1,30 @@
+graph LR
+    subgraph "Standard Binary Search Layout"
+        s1["FP 1: 10-20"] --- s2["FP 2: 25-35"]
+        s2 --- s3["FP 3: 40-50"]
+        s3 --- s4["FP 4: 55-65"]
+        s4 --- s5["FP 5: 70-80"]
+    end
+    
+    subgraph "Eytzinger Memory Layout"
+        e3["FP 3: 40-50"] --- e2["FP 2: 25-35"]
+        e3 --- e4["FP 4: 55-65"]
+        e2 --- e1["FP 1: 10-20"]
+        e4 --- e5["FP 5: 70-80"]
+    end
+    
+    subgraph "Memory Access Order"
+        m1["Access 1: FP 3"] --> m2["Access 2: FP 2"] 
+        m2 --> m3["Access 3: FP 1"]
+    end
+    
+    classDef default fill:#f9f9f9,stroke:#333,stroke-width:1px
+    classDef standard fill:#ffe6cc,stroke:#d79b00,stroke-width:1px
+    classDef eytzinger fill:#d5e8d4,stroke:#82b366,stroke-width:1px
+    classDef access fill:#dae8fc,stroke:#6c8ebf,stroke-width:1px
+    classDef accessed fill:#f8cecc,stroke:#b85450,stroke-width:1px
+    
+    class s1,s2,s3,s4,s5 standard
+    class e1,e2,e3,e4,e5 eytzinger
+    class m1,m2,m3 access
+    class e3,e2,e1 accessed

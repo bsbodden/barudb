@@ -11,3 +11,4 @@ test_recovery*/**/*
 sota/terarkdb_bench
 sota/wiredtiger_bench
 speedb/
+final_report/report_todo.md

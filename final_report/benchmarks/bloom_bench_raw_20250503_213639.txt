@@ -1,0 +1,60 @@
+bloom_filters/speeddb_insert/1000
+                        time:   [13.008 µs 13.017 µs 13.029 µs]
+Found 3 outliers among 200 measurements (1.50%)
+  1 (0.50%) high mild
+  2 (1.00%) high severe
+bloom_filters/bloom_insert/1000
+                        time:   [18.667 µs 18.708 µs 18.762 µs]
+Found 17 outliers among 200 measurements (8.50%)
+  8 (4.00%) high mild
+  9 (4.50%) high severe
+bloom_filters/rocksdb_insert/1000
+                        time:   [23.173 µs 23.186 µs 23.200 µs]
+Found 6 outliers among 200 measurements (3.00%)
+  5 (2.50%) high mild
+  1 (0.50%) high severe
+bloom_filters/fastbloom_insert/1000
+                        time:   [12.747 µs 12.757 µs 12.767 µs]
+Found 12 outliers among 200 measurements (6.00%)
+  7 (3.50%) high mild
+  5 (2.50%) high severe
+bloom_filters/bloom_insert_batch/1000
+                        time:   [17.165 µs 17.173 µs 17.182 µs]
+Found 15 outliers among 200 measurements (7.50%)
+  12 (6.00%) high mild
+  3 (1.50%) high severe
+bloom_filters/bloom_insert_batch_concurrent/1000
+                        time:   [5.8550 µs 5.8592 µs 5.8638 µs]
+Found 8 outliers among 200 measurements (4.00%)
+  6 (3.00%) high mild
+  2 (1.00%) high severe
+bloom_filters/speeddb_lookup/1000
+                        time:   [6.9413 µs 6.9455 µs 6.9500 µs]
+Found 12 outliers among 200 measurements (6.00%)
+  9 (4.50%) high mild
+  3 (1.50%) high severe
+bloom_filters/bloom_lookup/1000
+                        time:   [10.200 µs 10.210 µs 10.220 µs]
+Found 13 outliers among 200 measurements (6.50%)
+  8 (4.00%) high mild
+  5 (2.50%) high severe
+bloom_filters/rocksdb_lookup/1000
+                        time:   [8.4855 µs 8.4903 µs 8.4952 µs]
+Found 6 outliers among 200 measurements (3.00%)
+  5 (2.50%) high mild
+  1 (0.50%) high severe
+bloom_filters/fastbloom_lookup/1000
+                        time:   [6.7456 µs 6.7556 µs 6.7665 µs]
+Found 25 outliers among 200 measurements (12.50%)
+  11 (5.50%) high mild
+  14 (7.00%) high severe
+bloom_filters/bloom_lookup_batch/1000
+                        time:   [6.2103 µs 6.2186 µs 6.2289 µs]
+Found 11 outliers among 200 measurements (5.50%)
+  4 (2.00%) high mild
+  7 (3.50%) high severe
+bloom_filters/speeddb_fp/1000
+                        time:   [99.866 µs 100.10 µs 100.38 µs]
+Found 23 outliers among 200 measurements (11.50%)
+  3 (1.50%) high mild
+  20 (10.00%) high severe

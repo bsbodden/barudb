@@ -1,0 +1,7 @@
+,Implementation,QueryType,Latency,Throughput
+0,Eytzinger,PointQuery,850.0,1180000.0
+1,Eytzinger,RangeQuery,1950.0,513000.0
+2,FastLane,PointQuery,1050.0,950000.0
+3,FastLane,RangeQuery,2450.0,408000.0
+4,Standard,PointQuery,1350.0,750000.0
+5,Standard,RangeQuery,3250.0,310000.0

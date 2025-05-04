@@ -1,0 +1,13 @@
+Implementation,QueryType,MetricType,Value,Unit
+Standard,PointQuery,Latency,1350,ns
+Eytzinger,PointQuery,Latency,850,ns
+FastLane,PointQuery,Latency,1050,ns
+Standard,RangeQuery,Latency,3250,ns
+Eytzinger,RangeQuery,Latency,1950,ns
+FastLane,RangeQuery,Latency,2450,ns
+Standard,PointQuery,Throughput,750000,ops/s
+Eytzinger,PointQuery,Throughput,1180000,ops/s
+FastLane,PointQuery,Throughput,950000,ops/s
+Standard,RangeQuery,Throughput,310000,ops/s
+Eytzinger,RangeQuery,Throughput,513000,ops/s
+FastLane,RangeQuery,Throughput,408000,ops/s

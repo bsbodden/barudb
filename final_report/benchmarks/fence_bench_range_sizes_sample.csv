@@ -1,0 +1,5 @@
+RangeSize,RangeCount,Standard_ns,Eytzinger_ns,Improvement_pct
+Small,2500,980,760,22.45
+Medium,1000,1850,1350,27.03
+Large,500,3250,2200,32.31
+Extreme,100,6500,3800,41.54
