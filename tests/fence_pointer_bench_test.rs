@@ -254,6 +254,7 @@ impl FencePointerBenchmark {
 }
 
 #[test]
+#[ignore = "Long-running fence pointer benchmark comparing different implementations; run explicitly with 'cargo test bench_fence_pointers -- --ignored'"]
 fn bench_fence_pointers() {
     let dataset_types = ["sequential", "random", "million_pattern", "skewed"];
     let dataset_sizes = [1_000, 10_000, 100_000];

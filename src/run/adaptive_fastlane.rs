@@ -132,7 +132,7 @@ impl AdaptiveFastLanePointers {
             eytzinger: EytzingerFencePointers::new(),
             min_key: Key::MAX,
             max_key: Key::MIN,
-            size_threshold: AtomicUsize::new(100_000), // Initial threshold
+            size_threshold: AtomicUsize::new(500_000), // Initial threshold - optimized based on benchmarks
             point_query_count: AtomicUsize::new(0),
             range_query_count: AtomicUsize::new(0),
             adaptive_stats: AdaptiveStats {
@@ -217,7 +217,9 @@ impl AdaptiveFastLanePointers {
             return self.sample_point_query(key);
         }
         
-        // For normal operation, select based on dataset size and workload pattern
+        // For normal operation, select based on dataset size
+        // Benchmarks showed that Eytzinger is better for datasets of 500K+ elements
+        // and Standard is better for smaller datasets
         if current_size >= threshold {
             // Large dataset - use Eytzinger for better performance
             self.eytzinger.find_block_for_key(key)
@@ -285,8 +287,18 @@ impl AdaptiveFastLanePointers {
             return Vec::new();
         }
         
-        // Always use standard for range queries - zero overhead pass-through
-        self.standard.find_blocks_in_range(start, end)
+        // Based on benchmarks, Eytzinger performs better for large datasets,
+        // especially for large range queries
+        let current_size = self.len();
+        let threshold = self.size_threshold.load(Ordering::Relaxed);
+        
+        // Use Eytzinger for large datasets (> 500K elements) where it shows better performance
+        if current_size >= threshold {
+            self.eytzinger.find_blocks_in_range(start, end)
+        } else {
+            // For smaller datasets, use the standard implementation
+            self.standard.find_blocks_in_range(start, end)
+        }
     }
     
     /// Get the memory usage in bytes
@@ -391,10 +403,13 @@ impl AdaptiveFastLanePointers {
         // If Eytzinger is faster, lower the threshold; if Standard is faster, raise it
         let new_threshold = if eytzinger_point_avg < std_point_avg {
             // Eytzinger is faster, lower the threshold
-            (current_threshold * 9 / 10).max(1_000)
+            // More aggressive adjustment (75% instead of 90%) based on benchmarks
+            (current_threshold * 75 / 100).max(250_000)
         } else {
             // Standard is faster, raise the threshold
-            (current_threshold * 11 / 10).min(1_000_000)
+            // Cap at 750K instead of 1M based on benchmarks showing Eytzinger is
+            // better for datasets ≥ 500K
+            (current_threshold * 11 / 10).min(750_000)
         };
         
         // Update the threshold

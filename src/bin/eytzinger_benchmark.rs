@@ -1,11 +1,21 @@
-use criterion::{criterion_group, criterion_main, Criterion};
 use lsm_tree::run::{EytzingerFencePointers, StandardFencePointers, FastLaneFencePointers};
 use lsm_tree::types::Key;
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use std::time::Instant;
 
+fn main() {
+    println!("\n=== Eytzinger Fence Pointers Performance Benchmark ===");
+    
+    // Run our benchmarks
+    benchmark_eytzinger();
+    benchmark_eytzinger_range();
+    benchmark_eytzinger_scaling();
+    benchmark_eytzinger_optimizations();
+    benchmark_eytzinger_range_optimizations();
+}
+
 /// Manual benchmark to compare Eytzinger vs Standard and FastLane fence pointers
-pub fn benchmark_eytzinger() -> (f64, f64) {
+fn benchmark_eytzinger() -> (f64, f64) {
     println!("\n=== Eytzinger Fence Pointers Performance Comparison ===");
     
     // Configuration
@@ -20,7 +30,7 @@ pub fn benchmark_eytzinger() -> (f64, f64) {
     println!("Generating {} lookup keys...", lookup_count);
     let mut rng = StdRng::seed_from_u64(42);
     let lookup_keys: Vec<Key> = (0..lookup_count)
-        .map(|_| rng.gen_range(0..size as Key * 2))
+        .map(|_| rng.random_range(0..size as Key * 2))
         .collect();
     
     // Build Standard fence pointers
@@ -139,12 +149,12 @@ pub fn benchmark_eytzinger() -> (f64, f64) {
     println!("Memory ratio (FastLane vs Standard): {:.2}x", fastlane_memory_ratio);
     println!("Memory ratio (Eytzinger vs Standard): {:.2}x", eytzinger_memory_ratio);
     
-    // Return the improvement percentages for criterion
+    // Return the improvement percentages
     (eytzinger_improvement, eytzinger_vs_fastlane)
 }
 
 // Benchmark for range queries
-pub fn benchmark_eytzinger_range() -> (f64, f64) {
+fn benchmark_eytzinger_range() -> (f64, f64) {
     println!("\n=== Eytzinger Fence Pointers Range Query Performance ===");
     
     // Configuration
@@ -161,8 +171,8 @@ pub fn benchmark_eytzinger_range() -> (f64, f64) {
     let mut rng = StdRng::seed_from_u64(42);
     let ranges: Vec<(Key, Key)> = (0..range_count)
         .map(|_| {
-            let start = rng.gen_range(0..size as Key - range_size);
-            let end = start + rng.gen_range(1..range_size);
+            let start = rng.random_range(0..size as Key - range_size);
+            let end = start + rng.random_range(1..range_size);
             (start, end)
         })
         .collect();
@@ -262,12 +272,12 @@ pub fn benchmark_eytzinger_range() -> (f64, f64) {
         eytzinger_vs_fastlane_range.abs(),
         if eytzinger_vs_fastlane_range > 0.0 { "faster" } else { "slower" });
     
-    // Return the improvement percentages for criterion
+    // Return the improvement percentages
     (eytzinger_range_improvement, eytzinger_vs_fastlane_range)
 }
 
 // Benchmark comparing performance across different dataset sizes
-pub fn benchmark_eytzinger_scaling() {
+fn benchmark_eytzinger_scaling() {
     println!("\n=== Eytzinger Fence Pointers Scaling Performance ===");
     
     // Test with various dataset sizes
@@ -285,7 +295,7 @@ pub fn benchmark_eytzinger_scaling() {
         // Generate lookup keys with 50% hit rate
         let mut rng = StdRng::seed_from_u64(42);
         let lookup_keys: Vec<Key> = (0..lookup_count)
-            .map(|_| rng.gen_range(0..size as Key * 2))
+            .map(|_| rng.random_range(0..size as Key * 2))
             .collect();
         
         // Build Standard fence pointers
@@ -349,7 +359,7 @@ pub fn benchmark_eytzinger_scaling() {
 
 /// Benchmark to compare different optimizations of the Eytzinger implementation
 /// This benchmark measures the performance impact of the various optimizations we've added
-pub fn benchmark_eytzinger_optimizations() {
+fn benchmark_eytzinger_optimizations() {
     println!("\n=== Eytzinger Optimizations Performance Comparison ===");
     
     // Configuration
@@ -364,7 +374,7 @@ pub fn benchmark_eytzinger_optimizations() {
     println!("Generating {} lookup keys...", lookup_count);
     let mut rng = StdRng::seed_from_u64(42);
     let lookup_keys: Vec<Key> = (0..lookup_count)
-        .map(|_| rng.gen_range(0..size as Key * 2))
+        .map(|_| rng.random_range(0..size as Key * 2))
         .collect();
     
     // Build Standard fence pointers (as baseline)
@@ -500,7 +510,7 @@ pub fn benchmark_eytzinger_optimizations() {
 }
 
 /// Benchmark specifically for range queries with different implementations
-pub fn benchmark_eytzinger_range_optimizations() {
+fn benchmark_eytzinger_range_optimizations() {
     println!("\n=== Eytzinger Range Query Optimizations Performance ===");
     
     // Configuration
@@ -517,8 +527,8 @@ pub fn benchmark_eytzinger_range_optimizations() {
     let mut rng = StdRng::seed_from_u64(42);
     let ranges: Vec<(Key, Key)> = (0..range_count)
         .map(|_| {
-            let start = rng.gen_range(0..size as Key - range_size_avg);
-            let range_len = rng.gen_range(1..range_size_avg * 2); // Varied range sizes
+            let start = rng.random_range(0..size as Key - range_size_avg);
+            let range_len = rng.random_range(1..range_size_avg * 2); // Varied range sizes
             let end = start + range_len;
             (start, end)
         })
@@ -605,18 +615,18 @@ pub fn benchmark_eytzinger_range_optimizations() {
     // Benchmark small ranges
     if !small_ranges.is_empty() {
         let std_start = Instant::now();
-        let mut std_blocks = 0;
+        let mut _std_blocks = 0;
         for (start, end) in &small_ranges {
             let blocks = std_fps.find_blocks_in_range(*start, *end);
-            std_blocks += blocks.len();
+            _std_blocks += blocks.len();
         }
         let std_small_duration = std_start.elapsed();
         
         let eytz_start = Instant::now();
-        let mut eytz_blocks = 0;
+        let mut _eytz_blocks = 0;
         for (start, end) in &small_ranges {
             let blocks = eytzinger_fps.find_blocks_in_range(*start, *end);
-            eytz_blocks += blocks.len();
+            _eytz_blocks += blocks.len();
         }
         let eytz_small_duration = eytz_start.elapsed();
         
@@ -635,18 +645,18 @@ pub fn benchmark_eytzinger_range_optimizations() {
     // Benchmark medium ranges
     if !medium_ranges.is_empty() {
         let std_start = Instant::now();
-        let mut std_blocks = 0;
+        let mut _std_blocks = 0;
         for (start, end) in &medium_ranges {
             let blocks = std_fps.find_blocks_in_range(*start, *end);
-            std_blocks += blocks.len();
+            _std_blocks += blocks.len();
         }
         let std_medium_duration = std_start.elapsed();
         
         let eytz_start = Instant::now();
-        let mut eytz_blocks = 0;
+        let mut _eytz_blocks = 0;
         for (start, end) in &medium_ranges {
             let blocks = eytzinger_fps.find_blocks_in_range(*start, *end);
-            eytz_blocks += blocks.len();
+            _eytz_blocks += blocks.len();
         }
         let eytz_medium_duration = eytz_start.elapsed();
         
@@ -665,18 +675,18 @@ pub fn benchmark_eytzinger_range_optimizations() {
     // Benchmark large ranges
     if !large_ranges.is_empty() {
         let std_start = Instant::now();
-        let mut std_blocks = 0;
+        let mut _std_blocks = 0;
         for (start, end) in &large_ranges {
             let blocks = std_fps.find_blocks_in_range(*start, *end);
-            std_blocks += blocks.len();
+            _std_blocks += blocks.len();
         }
         let std_large_duration = std_start.elapsed();
         
         let eytz_start = Instant::now();
-        let mut eytz_blocks = 0;
+        let mut _eytz_blocks = 0;
         for (start, end) in &large_ranges {
             let blocks = eytzinger_fps.find_blocks_in_range(*start, *end);
-            eytz_blocks += blocks.len();
+            _eytz_blocks += blocks.len();
         }
         let eytz_large_duration = eytz_start.elapsed();
         
@@ -692,26 +702,3 @@ pub fn benchmark_eytzinger_range_optimizations() {
             if large_improvement > 0.0 { "faster" } else { "slower" });
     }
 }
-
-fn criterion_benchmark(c: &mut Criterion) {
-    // Run our manual benchmark in bench group
-    let mut group = c.benchmark_group("Eytzinger Fence Pointers");
-    
-    group.bench_function("eytzinger_point_query", |b| {
-        b.iter(|| benchmark_eytzinger())
-    });
-    
-    group.bench_function("eytzinger_range_query", |b| {
-        b.iter(|| benchmark_eytzinger_range())
-    });
-    
-    group.finish();
-    
-    // Run the detailed benchmarks
-    benchmark_eytzinger_scaling();
-    benchmark_eytzinger_optimizations();
-    benchmark_eytzinger_range_optimizations();
-}
-
-criterion_group!(benches, criterion_benchmark);
-criterion_main!(benches);
