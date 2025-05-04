@@ -516,8 +516,6 @@ mod tests {
     #[test]
     // #[ignore] // Only run when --nocapture is used
     fn test_performance() {
-        use std::time::Instant;
-
         for m in 1..=8 {
             let num_keys = m * 8 * 1024 * 1024;
             println!("Testing {} million keys", m * 8);

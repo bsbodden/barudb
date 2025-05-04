@@ -41,6 +41,7 @@ impl<T: Clone> AlignedVec<T> {
         self.data.capacity()
     }
     
+    #[allow(dead_code)]
     fn as_ptr(&self) -> *const T {
         self.data.as_ptr()
     }
