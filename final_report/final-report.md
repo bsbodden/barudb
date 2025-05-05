@@ -94,7 +94,9 @@ Our LSM tree implementation follows a layered architecture with the following ma
 
 The system is designed with modularity in mind, allowing components to be swapped or enhanced independently. For example, different Memtable implementations (thread-safe BTreeMap vs. lock-free), compaction policies, and storage backends can be selected without changing other parts of the system.
 
-![Architecture Overview](images/architecture.png)
+![System Architecture](images/system_architecture.png)
+
+*Figure 2.1: System architecture diagram showing the relationships between major components of the LSM-tree implementation. Each component type is color-coded: green for LSM Tree and Block Cache, blue for Memtable components, orange for Level/Run/Block components, purple for Compaction/Storage, yellow for Bloom Filter, and red for Fence Pointer components. The diagram illustrates inheritance relationships, compositions, and interfaces that form the complete system architecture.*
 
 ### 2.2 Memtable Design
 
@@ -139,6 +141,10 @@ Key characteristics:
 - Maintains keys in sorted order for efficient range queries and flushing
 - Atomic reference counting ensures safe memory management
 
+![Lock-Free Memtable Sequence](images/lock_free_memtable_sequence.png)
+
+*Figure 2.2: Sequence diagram showing the concurrent operations on the lock-free memtable implementation. The diagram illustrates how multiple writer and reader threads can access the structure without blocking each other, using hazard pointers for safe memory reclamation and atomic compare-and-swap (CAS) operations for thread-safe updates.*
+
 The Memtable is sized based on the number of entries rather than bytes to maintain predictable memory usage. When the Memtable reaches its configured capacity, a flush operation is triggered to persist its contents to disk.
 
 ### 2.3 Run Design
@@ -182,6 +188,12 @@ Fence pointers allow the system to quickly locate blocks that may contain a targ
 
 ![Eytzinger Layout for Fence Pointers](images/eytzinger_layout.png)
 
+*Figure 2.5: Conceptual illustration of the Eytzinger layout for fence pointers, showing how keys are arranged in level-order traversal of a binary search tree to improve cache locality.*
+
+![Eytzinger Layout Operation Sequence](images/eytzinger_layout_sequence.png)
+
+*Figure 2.6: Sequence diagram showing the operation of the Eytzinger layout fence pointers. The diagram illustrates both the initialization process that transforms a sorted array into the Eytzinger layout and the binary search process that leverages this cache-efficient organization. It also shows how SIMD operations can further accelerate the search process when available.*
+
 The Eytzinger layout (named after Maurice Eytzinger) arranges keys in level-order traversal of a binary search tree, greatly improving cache locality during binary search operations. This implementation follows the pattern "04261537" which refers to the level-order traversal of a complete binary tree, creating a memory layout where binary search has much better cache locality and is amenable to SIMD operations.
 
 The fence pointer implementation is selected based on the characteristics of the data and the level in the LSM tree.
@@ -197,6 +209,12 @@ Bloom filters provide probabilistic membership testing to avoid unnecessary disk
 5. **Dynamic Bloom filter**: Adapts to observed false positive rates
 
 ![Bloom Filter Operation](images/bloom_filter.png)
+
+*Figure 2.3: Conceptual illustration of a standard Bloom filter operation, showing how multiple hash functions are used to set and test bit positions.*
+
+![Double-Probe Bloom Filter Sequence](images/double_probe_bloom_sequence.png)
+
+*Figure 2.4: Sequence diagram showing the operation of our custom double-probe Bloom filter implementation. The diagram illustrates both insertion and lookup operations, showing how the filter uses cache-aligned bit vectors organized in blocks and optimized hash functions that generate both block ID and bit offset. The diagram shows the short-circuit evaluation during lookups and the block-based memory organization that improves cache efficiency.*
 
 The Bloom filter sizing is dynamically adjusted based on the level in the LSM tree, following the recommendations from the Monkey paper by Dayan et al. [2]. Lower levels (with more frequent lookups) receive more bits per key than higher levels, based on the workload characteristics and estimated access frequencies.
 
@@ -342,6 +360,26 @@ pub trait FencePointers: Send + Sync {
 ```
 
 This trait-based design allows different implementations to be swapped easily without changing the rest of the system.
+
+### 3.1.1 Key Operation Flows
+
+To illustrate how these components interact during operation, we provide detailed sequence diagrams for the most critical operations.
+
+![GET Operation Sequence](images/get_operation_sequence.png)
+
+*Figure 3.1: Sequence diagram showing the GET operation flow through the LSM-tree components. The diagram illustrates how a read request traverses from the client through the Memtable, then through each level's Bloom filters and fence pointers to find the requested key. The process includes optimization paths where Bloom filters prevent unnecessary disk reads, and the block cache improves performance for frequently accessed data.*
+
+![PUT Operation Sequence](images/put_operation_sequence.png)
+
+*Figure 3.2: Sequence diagram showing the PUT operation flow, including the write path through the Write-Ahead Log (WAL) for durability and the Memtable for in-memory storage. The diagram also shows the flush process when the Memtable fills up, including how a flush may trigger a compaction operation which runs asynchronously.*
+
+![Compaction Sequence](images/compaction_sequence.png)
+
+*Figure 3.3: Sequence diagram showing the compaction process, including policy selection, merging of runs, building of Bloom filters and fence pointers for the new run, and updating of level metadata. The diagram highlights the critical sections where synchronization is required to maintain consistency.*
+
+![Range Query Sequence](images/range_query_sequence.png)
+
+*Figure 3.4: Sequence diagram showing the range query operation, illustrating how iterators are created across multiple components (Memtable, levels, runs) and merged to provide a consistent view of the key range. The diagram shows how fence pointers are used to efficiently locate the relevant blocks and how blocks are loaded from the cache or disk as needed.*
 
 ### 3.2 Memory Management and Safety
 
@@ -548,7 +586,19 @@ For maximum performance in critical paths, we implemented lock-free alternatives
 1. **Lock-free Memtable**: Using a concurrent skip list for wait-free operations
 2. **Lock-free Block Cache**: Using atomic reference counting and compare-and-swap operations
 
-### 3.6 Serialization and Storage
+### 3.6 Block Cache and Recovery
+
+The block cache and recovery mechanisms are critical for performance and reliability. The following diagrams illustrate their operation:
+
+![Block Cache Operation Sequence](images/block_cache_sequence.png)
+
+*Figure 3.5: Sequence diagram showing the block cache operation, including cache lookup, eviction policy, and TTL management. The diagram illustrates how the cache balances memory usage through eviction policies like LRU, LFU, or TinyLFU while providing fast access to frequently used blocks.*
+
+![Recovery Sequence](images/recovery_sequence.png)
+
+*Figure 3.6: Sequence diagram showing the database recovery process after a crash or restart. The diagram illustrates how the system rebuilds its state from the manifest file and WAL logs, ensuring data consistency and durability.*
+
+### 3.7 Serialization and Storage
 
 The storage layer is responsible for persisting data to disk and loading it back efficiently:
 

@@ -1,0 +1,106 @@
+sequenceDiagram
+    participant Client
+    participant LsmTree as LsmTree
+    participant ManifestManager as Manifest Manager
+    participant WALManager as WAL Manager
+    participant Memtable as Memtable
+    participant Level as Levels
+    participant Storage as Storage Layer
+    
+    %% Define participant boxes with consistent colors
+    rect rgba(144, 238, 144, 0.3)
+        note right of LsmTree: Tree components
+    end
+    rect rgba(173, 216, 230, 0.3)
+        note right of Memtable: Memtable components
+        note right of WALManager: WAL components
+    end
+    rect rgba(255, 165, 0, 0.3)
+        note right of Level: Level components
+        note right of Storage: Storage components
+    end
+    rect rgba(221, 160, 221, 0.3)
+        note right of ManifestManager: Manifest components
+    end
+    
+    %% Recovery operation
+    Client->>+LsmTree: open_database()
+    
+    %% First read manifest to recover tree structure
+    LsmTree->>+ManifestManager: recover_latest_manifest()
+    
+    %% Check manifest integrity
+    ManifestManager->>ManifestManager: verify_checksum()
+    
+    alt manifest valid
+        %% Extract LSM tree structure
+        ManifestManager->>ManifestManager: parse_manifest()
+        ManifestManager-->>-LsmTree: manifest_data
+        
+        %% Restore level structure
+        LsmTree->>+Level: restore_from_manifest(manifest_data)
+        
+        %% For each level in the manifest
+        loop For each level
+            Level->>Level: create_level(level_id)
+            
+            %% For each run in the level
+            loop For each run in level
+                Level->>+Storage: open_run_files(run_id)
+                Storage-->>-Level: file_handles
+                
+                %% Load metadata for the run
+                Level->>+Storage: read_metadata(run_id)
+                Storage-->>-Level: metadata
+                
+                %% Restore bloom filters
+                Level->>Level: load_bloom_filter(metadata.bloom_filter_path)
+                
+                %% Restore fence pointers
+                Level->>Level: load_fence_pointers(metadata.fence_pointers_path)
+            end
+        end
+        
+        Level-->>-LsmTree: levels_restored
+        
+        %% Check for WAL files to recover memtable
+        LsmTree->>+WALManager: find_wal_files()
+        WALManager-->>-LsmTree: wal_files
+        
+        alt wal files exist
+            LsmTree->>+WALManager: replay_logs(wal_files)
+            
+            %% Create new memtable for recovery
+            LsmTree->>+Memtable: new()
+            Memtable-->>-LsmTree: empty_memtable
+            
+            %% Replay log entries to memtable
+            loop For each log entry
+                WALManager->>WALManager: read_next_entry()
+                WALManager->>WALManager: verify_entry_checksum()
+                
+                alt entry valid
+                    WALManager->>+Memtable: insert(entry.key, entry.value)
+                    Memtable-->>-WALManager: success
+                else entry corrupt
+                    note right of WALManager: Stop at first corrupt entry
+                    WALManager-->>LsmTree: recovery_point
+                end
+            end
+            
+            WALManager-->>-LsmTree: replay_complete
+            
+            %% Create new WAL file for future writes
+            LsmTree->>WALManager: create_new_log()
+        else no wal files
+            LsmTree->>+Memtable: new()
+            Memtable-->>-LsmTree: empty_memtable
+            
+            LsmTree->>WALManager: create_new_log()
+        end
+        
+        LsmTree-->>-Client: database_open_success
+    else manifest invalid/missing
+        ManifestManager-->>-LsmTree: manifest_error
+        LsmTree-->>Client: cannot_recover_error
+    end

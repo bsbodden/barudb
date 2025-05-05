@@ -1,0 +1,81 @@
+sequenceDiagram
+    participant Client
+    participant LsmTree as LsmTree
+    participant Memtable as Memtable
+    participant Level as Level
+    participant BloomFilter as Bloom Filter
+    participant FencePointers as Fence Pointers
+    participant Run as Run
+    participant BlockCache as Block Cache
+    
+    %% Define participant boxes with consistent colors
+    rect rgba(144, 238, 144, 0.3)
+        note right of LsmTree: Tree components
+    end
+    rect rgba(173, 216, 230, 0.3)
+        note right of Memtable: Memtable components
+    end
+    rect rgba(255, 165, 0, 0.3)
+        note right of Level: Level components
+        note right of Run: Run components
+    end
+    rect rgba(255, 255, 0, 0.3)
+        note right of BloomFilter: Filter components
+    end
+    rect rgba(255, 0, 0, 0.3)
+        note right of FencePointers: Index components
+    end
+    rect rgba(144, 238, 144, 0.3)
+        note right of BlockCache: Cache components
+    end
+    
+    %% GET operation flow
+    Client->>+LsmTree: get(key)
+    
+    %% Check memtable first
+    LsmTree->>+Memtable: get(key)
+    Memtable-->>-LsmTree: result (found/not found)
+    
+    alt key found in memtable
+        LsmTree-->>Client: return value
+    else key not found in memtable
+        %% Check levels in sequence
+        loop For each level
+            LsmTree->>+Level: get(key)
+            
+            loop For each run in level
+                Level->>+BloomFilter: may_contain(key)
+                
+                alt key may be in run
+                    BloomFilter-->>-Level: true
+                    Level->>+FencePointers: find_block(key)
+                    FencePointers-->>-Level: block_id
+                    
+                    %% Check block cache before disk read
+                    Level->>+BlockCache: get_block(block_id)
+                    
+                    alt block in cache
+                        BlockCache-->>-Level: cached_block
+                    else block not in cache
+                        Level->>+Run: read_block(block_id)
+                        Run-->>-Level: block_data
+                        Level->>BlockCache: insert_block(block_id, block_data)
+                    end
+                    
+                    Level->>Level: search block for key
+                    
+                    alt key found in block
+                        Level-->>-LsmTree: found value
+                        LsmTree-->>Client: return value
+                    end
+                else key definitely not in run (Bloom filter negative)
+                    BloomFilter-->>Level: false
+                    note right of BloomFilter: Skip this run - Bloom filter optimization
+                end
+            end
+            
+            Level-->>-LsmTree: not found in this level
+        end
+        
+        LsmTree-->>Client: key not found (null)
+    end

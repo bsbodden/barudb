@@ -1,0 +1,103 @@
+sequenceDiagram
+    participant Thread1 as Writer Thread 1
+    participant Thread2 as Writer Thread 2
+    participant Thread3 as Reader Thread
+    participant SkipList as Lock-Free SkipList
+    participant NodeManager as Node Manager
+    participant HazardPointer as Hazard Pointers
+    
+    %% Define participant boxes with consistent colors
+    rect rgba(173, 216, 230, 0.3)
+        note right of SkipList: Memtable components
+        note right of NodeManager: Memory components
+        note right of HazardPointer: Thread safety components
+    end
+    
+    %% Concurrent operations on lock-free memtable
+    
+    %% Writer 1 inserts a key
+    Thread1->>+SkipList: insert(key1, value1)
+    
+    %% Register intent to access shared data structure
+    SkipList->>+HazardPointer: register_thread()
+    HazardPointer-->>-SkipList: thread_id
+    
+    %% Find position for insertion
+    SkipList->>SkipList: find_position(key1)
+    
+    %% Allocate new node
+    SkipList->>+NodeManager: allocate_node(key1, value1)
+    NodeManager-->>-SkipList: new_node
+    
+    %% Meanwhile, Writer 2 starts an insert
+    Thread2->>+SkipList: insert(key2, value2)
+    
+    %% Register intent to access shared data structure
+    SkipList->>+HazardPointer: register_thread()
+    HazardPointer-->>-SkipList: thread_id
+    
+    %% Find position for insertion
+    SkipList->>SkipList: find_position(key2)
+    
+    %% Allocate new node
+    SkipList->>+NodeManager: allocate_node(key2, value2)
+    NodeManager-->>-SkipList: new_node
+    
+    %% Reader thread starts a read
+    Thread3->>+SkipList: get(key3)
+    
+    %% Register hazard pointers for safe memory access
+    SkipList->>+HazardPointer: register_thread()
+    HazardPointer-->>-SkipList: thread_id
+    
+    %% Traverse the skiplist
+    SkipList->>SkipList: find_node(key3)
+    
+    %% Mark nodes as hazardous while reading
+    loop For each node visited
+        SkipList->>+HazardPointer: mark_hazardous(node_ptr)
+        HazardPointer-->>-SkipList: success
+    end
+    
+    %% First writer attempts CAS operation
+    note right of SkipList: Compare-And-Swap to insert node atomically
+    SkipList->>SkipList: atomic_CAS(prev→next, expected, new_node)
+    
+    alt CAS successful
+        SkipList-->>-Thread1: insert_success
+    else CAS failed (collision)
+        note right of SkipList: Retry with backoff
+        SkipList->>SkipList: exponential_backoff()
+        SkipList->>SkipList: retry_insert()
+        SkipList-->>-Thread1: insert_success_after_retry
+    end
+    
+    %% Second writer completes insert
+    SkipList->>SkipList: atomic_CAS(prev→next, expected, new_node)
+    SkipList-->>-Thread2: insert_success
+    
+    %% Reader completes traversal
+    alt node found
+        SkipList-->>-Thread3: value_for_key3
+    else node not found
+        SkipList-->>-Thread3: key_not_found
+    end
+    
+    %% Remove hazardous marks
+    Thread3->>+HazardPointer: clear_hazards()
+    HazardPointer-->>-Thread3: success
+    
+    %% Deferred cleanup of removed nodes
+    note right of NodeManager: Background thread periodically runs
+    NodeManager->>+HazardPointer: get_all_hazardous_pointers()
+    HazardPointer-->>-NodeManager: hazardous_ptr_list
+    
+    loop For each retired node
+        NodeManager->>NodeManager: check_if_safe_to_delete(node)
+        
+        alt No hazard pointers to node
+            NodeManager->>NodeManager: free_node(node)
+        else Node still referenced
+            NodeManager->>NodeManager: keep_in_retired_list(node)
+        end
+    end

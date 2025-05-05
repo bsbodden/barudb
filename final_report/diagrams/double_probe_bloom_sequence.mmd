@@ -1,0 +1,105 @@
+sequenceDiagram
+    participant Client
+    participant BloomFilter as Double-Probe Bloom Filter
+    participant BitVector as Block-Aligned Bit Vector
+    participant HashFunctions as Hash Functions
+    participant BlockReader as Block Reader
+    
+    %% Define participant boxes with consistent colors
+    rect rgba(255, 255, 0, 0.3)
+        note right of BloomFilter: Filter components
+        note right of BitVector: Storage components
+        note right of HashFunctions: Hashing components
+    end
+    rect rgba(255, 165, 0, 0.3)
+        note right of BlockReader: I/O components
+    end
+    
+    %% Insert operation
+    Client->>+BloomFilter: insert(key)
+    
+    %% Calculate hash values
+    BloomFilter->>+HashFunctions: calculate_hashes(key)
+    note right of HashFunctions: Custom double probe hash function that generates both block ID and bit offset
+    HashFunctions-->>-BloomFilter: {block_id1, bit_offset1, block_id2, bit_offset2}
+    
+    %% Set bits in blocks
+    BloomFilter->>+BitVector: get_or_load_block(block_id1)
+    BitVector-->>-BloomFilter: block1
+    BloomFilter->>BloomFilter: set_bit(block1, bit_offset1)
+    
+    BloomFilter->>+BitVector: get_or_load_block(block_id2)
+    BitVector-->>-BloomFilter: block2
+    BloomFilter->>BloomFilter: set_bit(block2, bit_offset2)
+    
+    BloomFilter-->>-Client: success
+    
+    %% Query operation
+    Client->>+BloomFilter: may_contain(key)
+    
+    %% Calculate hash values
+    BloomFilter->>+HashFunctions: calculate_hashes(key)
+    HashFunctions-->>-BloomFilter: {block_id1, bit_offset1, block_id2, bit_offset2}
+    
+    %% Check if block is already loaded
+    BloomFilter->>+BitVector: is_block_loaded(block_id1)
+    
+    alt block is loaded
+        BitVector-->>-BloomFilter: true
+        BloomFilter->>+BitVector: get_block(block_id1)
+        BitVector-->>-BloomFilter: block1
+    else block not loaded
+        BitVector-->>-BloomFilter: false
+        BloomFilter->>+BlockReader: read_block(block_id1)
+        BlockReader-->>-BloomFilter: block_data
+        BloomFilter->>BitVector: cache_block(block_id1, block_data)
+        BloomFilter->>+BitVector: get_block(block_id1)
+        BitVector-->>-BloomFilter: block1
+    end
+    
+    %% Check first bit
+    BloomFilter->>BloomFilter: check_bit(block1, bit_offset1)
+    
+    alt first bit not set
+        %% Short-circuit evaluation - definitely not in set
+        BloomFilter-->>-Client: false
+    else first bit set
+        %% Need to check second bit
+        BloomFilter->>+BitVector: is_block_loaded(block_id2)
+        
+        alt block is loaded
+            BitVector-->>-BloomFilter: true
+            BloomFilter->>+BitVector: get_block(block_id2)
+            BitVector-->>-BloomFilter: block2
+        else block not loaded
+            BitVector-->>-BloomFilter: false
+            BloomFilter->>+BlockReader: read_block(block_id2)
+            BlockReader-->>-BloomFilter: block_data
+            BloomFilter->>BitVector: cache_block(block_id2, block_data)
+            BloomFilter->>+BitVector: get_block(block_id2)
+            BitVector-->>-BloomFilter: block2
+        end
+        
+        %% Check second bit
+        BloomFilter->>BloomFilter: check_bit(block2, bit_offset2)
+        
+        alt second bit not set
+            %% Definitely not in set
+            BloomFilter-->>-Client: false
+        else second bit set
+            %% May be in set (could be false positive)
+            BloomFilter-->>-Client: true
+        end
+    end
+    
+    %% Bit Vector Organization
+    note over BitVector: Block-Aligned Bit Vector Layout
+    note over BitVector: |<-- 64-byte cache line -->|<-- 64-byte cache line -->|
+    note over BitVector: |  Block 0 (512 bits)     |  Block 1 (512 bits)     |
+    
+    %% Hash Function Details
+    note over HashFunctions: Double-Probe Hash Implementation
+    note over HashFunctions: 1. Single hash function h(key) produces 64-bit value
+    note over HashFunctions: 2. Upper bits determine block_id1
+    note over HashFunctions: 3. Lower bits determine bit_offset1
+    note over HashFunctions: 4. XOR with constant produces block_id2 and bit_offset2

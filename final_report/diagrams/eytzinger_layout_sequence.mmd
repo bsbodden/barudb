@@ -1,0 +1,107 @@
+sequenceDiagram
+    participant Client
+    participant FencePointers as Eytzinger Fence Pointers
+    participant Memory as Memory Layout
+    participant SIMD as SIMD Operations
+    participant BinarySearch as Binary Search
+    
+    %% Define participant boxes with consistent colors
+    rect rgba(255, 0, 0, 0.3)
+        note right of FencePointers: Index components
+        note right of Memory: Layout components
+        note right of SIMD: Optimization components
+        note right of BinarySearch: Search components
+    end
+    
+    %% Initialization of Eytzinger layout
+    Client->>+FencePointers: build(keys)
+    
+    %% Transform array to Eytzinger layout
+    FencePointers->>+Memory: allocate_memory(keys.len())
+    Memory-->>-FencePointers: memory_ptr
+    
+    %% Eytzinger layout construction
+    FencePointers->>FencePointers: build_eytzinger_layout(keys)
+    
+    note right of FencePointers: Convert from sorted array to level-order binary tree layout
+    
+    %% Loop over keys to build layout
+    loop For each position in output array
+        FencePointers->>FencePointers: map_to_eytzinger_position(index)
+        FencePointers->>Memory: write_key_at_position()
+    end
+    
+    %% Optimize memory layout
+    FencePointers->>FencePointers: prefetch_optimize_layout()
+    
+    FencePointers-->>-Client: eytzinger_fence_pointers
+    
+    %% Lookup operation
+    Client->>+FencePointers: find_block(search_key)
+    
+    %% Determine if SIMD available
+    FencePointers->>FencePointers: detect_simd_support()
+    
+    alt SIMD supported
+        %% Use SIMD-accelerated binary search
+        FencePointers->>+SIMD: prepare_simd_comparison(search_key)
+        SIMD-->>-FencePointers: comparison_vector
+        
+        %% Start binary search with SIMD
+        FencePointers->>+BinarySearch: simd_binary_search(comparison_vector)
+        
+        loop Binary search iterations
+            %% Load multiple keys at once with SIMD
+            BinarySearch->>+Memory: simd_load_keys(current_index)
+            Memory-->>-BinarySearch: key_vector
+            
+            %% Compare multiple keys simultaneously
+            BinarySearch->>SIMD: vector_compare(key_vector, search_key)
+            SIMD-->>BinarySearch: comparison_result
+            
+            %% Use comparison to update search bounds
+            BinarySearch->>BinarySearch: update_bounds(comparison_result)
+            
+            %% Prefetch next potential memory location
+            BinarySearch->>Memory: prefetch(next_potential_index)
+        end
+        
+        BinarySearch-->>-FencePointers: position
+        
+    else SIMD not supported
+        %% Fall back to optimized scalar binary search
+        FencePointers->>+BinarySearch: eytzinger_binary_search(search_key)
+        
+        loop Binary search iterations
+            %% Navigate Eytzinger layout
+            BinarySearch->>+Memory: load_key(current_index)
+            Memory-->>-BinarySearch: current_key
+            
+            alt search_key < current_key
+                %% Go left in the logical binary tree
+                BinarySearch->>BinarySearch: go_left_in_eytzinger()
+            else search_key >= current_key
+                %% Go right in the logical binary tree
+                BinarySearch->>BinarySearch: go_right_in_eytzinger()
+            end
+            
+            %% Prefetch next potential memory location
+            BinarySearch->>Memory: prefetch(next_potential_index)
+        end
+        
+        BinarySearch-->>-FencePointers: position
+    end
+    
+    %% Translate position to block ID
+    FencePointers->>FencePointers: position_to_block_id(position)
+    FencePointers-->>-Client: block_id
+    
+    %% Memory Layout Details
+    note over Memory: Standard Layout vs Eytzinger Layout
+    note over Memory: Standard: [1,2,3,4,5,6,7]
+    note over Memory: Eytzinger: [4,2,6,1,3,5,7]
+    
+    %% Binary Search Details
+    note over BinarySearch: Cache-friendly traversal pattern
+    note over BinarySearch: Eytzinger formula: left(i) = 2i + 1, right(i) = 2i + 2
+    note over BinarySearch: Mapping: pos_eytzinger = eytzinger(pos_inorder)

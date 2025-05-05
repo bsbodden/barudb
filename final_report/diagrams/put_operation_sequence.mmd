@@ -1,0 +1,71 @@
+sequenceDiagram
+    participant Client
+    participant LsmTree as LsmTree
+    participant WAL as Write-Ahead Log
+    participant Memtable as Memtable
+    participant Level as Level 0
+    participant CompactionManager as Compaction Manager
+    
+    %% Define participant boxes with consistent colors
+    rect rgba(144, 238, 144, 0.3)
+        note right of LsmTree: Tree components
+    end
+    rect rgba(173, 216, 230, 0.3)
+        note right of Memtable: Memtable components
+        note right of WAL: Durability components
+    end
+    rect rgba(255, 165, 0, 0.3)
+        note right of Level: Level components
+    end
+    rect rgba(221, 160, 221, 0.3)
+        note right of CompactionManager: Compaction components
+    end
+    
+    %% PUT operation flow
+    Client->>+LsmTree: put(key, value)
+    
+    %% Write to WAL first for durability
+    LsmTree->>+WAL: append(key, value)
+    WAL-->>-LsmTree: success
+    
+    %% Insert into memtable
+    LsmTree->>+Memtable: insert(key, value)
+    
+    note right of Memtable: Thread-safe insertion with proper locking
+    
+    alt if memtable not full
+        Memtable-->>-LsmTree: success
+        LsmTree-->>Client: success
+    else if memtable full
+        %% Memtable is full, trigger flush
+        Memtable-->>-LsmTree: memtable full
+        
+        %% Create new memtable
+        LsmTree->>LsmTree: create new memtable
+        
+        %% Flush full memtable to Level 0
+        LsmTree->>+Level: flush_memtable(immutable_memtable)
+        
+        %% Create run components
+        Level->>Level: create new run
+        Level->>Level: create bloom filter
+        Level->>Level: build fence pointers
+        Level->>Level: write blocks to disk
+        
+        Level-->>-LsmTree: flush complete
+        
+        %% Check if compaction needed
+        LsmTree->>+CompactionManager: check_compact_needed()
+        
+        alt if compaction needed
+            CompactionManager-->>-LsmTree: needs compaction
+            
+            %% Start async compaction
+            LsmTree->>CompactionManager: schedule_compaction()
+            note right of CompactionManager: Async task - doesn't block PUT operation
+        else no compaction needed
+            CompactionManager-->>-LsmTree: no compaction needed
+        end
+        
+        LsmTree-->>Client: success
+    end
