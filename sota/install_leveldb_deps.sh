@@ -10,7 +10,7 @@ if [[ "$OSTYPE" == "linux-gnu"* ]]; then
         # Debian/Ubuntu/Pop!_OS
         echo "Detected Debian/Ubuntu/Pop!_OS"
         sudo apt-get update
-        sudo apt-get install -y libleveldb-dev leveldb-util libsnappy-dev build-essential
+        sudo apt-get install -y libleveldb-dev libsnappy-dev build-essential
     elif [ -f /etc/fedora-release ]; then
         # Fedora
         echo "Detected Fedora"

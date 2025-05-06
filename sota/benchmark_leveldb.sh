@@ -2,6 +2,7 @@
 set -e
 
 echo "==== Installing LevelDB Dependencies ===="
+cd "$(dirname "$0")"
 ./install_leveldb_deps.sh
 
 echo "==== Running LevelDB Benchmark ===="

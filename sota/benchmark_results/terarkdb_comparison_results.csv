@@ -1,4 +1,4 @@
 db_name,operation,workload_size,throughput_ops_per_sec
-TerarkDB,put,100000,1.13646e+06
-TerarkDB,get,100000,3.15582e+06
-TerarkDB,range,100000,1774
+TerarkDB,put,100000,1.06078e+06
+TerarkDB,get,100000,3.0996e+06
+TerarkDB,range,100000,1718.18

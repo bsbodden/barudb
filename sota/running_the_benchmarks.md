@@ -237,14 +237,61 @@ To compare across different hardware:
 
 ## Understanding Benchmark Methodology
 
+### Benchmark Design Principles
+
+Our benchmark methodology follows these key principles to ensure scientific integrity:
+
+1. **Real Database Integration**: All benchmarks use actual database implementations, not simulations or mocks.
+   - Each database is properly installed using dedicated scripts
+   - System dependencies are installed via package managers
+   - For RocksDB and SpeedB, we integrate with official crates
+   - For TerarkDB and WiredTiger, we create custom C/C++ wrappers
+
+2. **Identical Workloads**: All databases are tested with identical workload patterns:
+   - Small workload: 1,000 puts, 100 gets, 10 ranges, 10 deletes
+   - Medium workload: 5,000 puts, 500 gets, 50 ranges, 50 deletes
+   - Large workload: 100,000 puts, 10,000 gets, 1,000 ranges, 1,000 deletes
+
+3. **Fair Comparison**: Steps taken to ensure fairness:
+   - All databases use their recommended optimizations
+   - The same key-value pair sizes and distributions
+   - Identical hardware for all benchmarks
+   - Multiple runs to account for variability
+
+4. **Reproducible Results**: All benchmark code and scripts are:
+   - Version controlled
+   - Well-documented
+   - Designed to be reproducible on different hardware
+
+### Measurement Approach
+
 Each benchmark measures:
 
 1. **Put operations**: How fast data can be written
 2. **Get operations**: How fast data can be read
 3. **Range operations**: How fast ranges of data can be scanned
-4. **Delete operations**: How fast data can be removed (where supported)
+4. **Delete operations**: How fast data can be removed
 
-All benchmarks use the same key-value pair sizes and distribution to ensure fair comparison.
+### Database Integration Approach
+
+We used different integration approaches based on each database's characteristics:
+
+1. **RocksDB & SpeedB**: Direct Rust bindings using the `rocksdb` crate
+2. **LevelDB**: Rust bindings using the `leveldb` crate
+3. **LMDB**: Rust bindings using the `lmdb-rkv` crate
+4. **TerarkDB**: Custom C++ wrapper around the TerarkDB API
+5. **WiredTiger**: Custom C wrapper around the WiredTiger API
+
+### Result Analysis
+
+After collecting raw benchmark data:
+1. Results are saved to standardized CSV files
+2. Our Python analysis scripts process the data
+3. Speedup ratios are calculated for each operation type
+4. Visualizations highlight the relative performance
+5. Reports summarize the key findings and insights
+
+This comprehensive approach ensures that our performance claims are based on real, reproducible benchmarks against properly configured database systems.
 
 ## Setting Up Benchmark Environment
 

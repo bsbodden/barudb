@@ -1,18 +1,7 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, SamplingMode};
 use lsm_tree::lsm_tree::{LSMTree, LSMConfig, DynamicBloomFilterConfig};
-use lsm_tree::types::{CompactionPolicyType, StorageType, Key, Value};
+use lsm_tree::types::{CompactionPolicyType, StorageType, Key, Value, Result as LsmResult};
 use lsm_tree::run::{CompressionConfig, AdaptiveCompressionConfig, CompressionType};
-
-// Conditional compilation for LevelDB
-#[cfg(feature = "use_leveldb")]
-use leveldb::database::Database;
-#[cfg(feature = "use_leveldb")]
-use leveldb::options::{Options, ReadOptions, WriteOptions};
-#[cfg(feature = "use_leveldb")]
-use leveldb::kv::KV;
-#[cfg(feature = "use_leveldb")]
-use leveldb::iterator::{Iterable, Iterator as LevelDBIterator, LevelDBIterator as _};
-
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use std::fs::{self, File};
@@ -20,7 +9,7 @@ use std::io::{BufRead, BufReader};
 use tempfile::TempDir;
 use csv::Writer;
 use serde::{Serialize, Deserialize};
-use std::env;
+use std::sync::Arc;
 
 /// Database interface for benchmarking
 trait BenchmarkableDatabase {
@@ -44,7 +33,7 @@ impl LsmTreeBenchmark {
     fn new() -> Result<Self, String> {
         let temp_dir = TempDir::new().map_err(|e| format!("Failed to create temp dir: {}", e))?;
         
-        // Use optimized configuration based on analysis and benchmarking
+        // Create an optimized configuration based on our analysis
         let config = LSMConfig {
             buffer_size: 64, // 64 MB
             storage_type: StorageType::File,
@@ -83,7 +72,7 @@ impl LsmTreeBenchmark {
         };
         
         Ok(Self {
-            name: "LSM Tree".to_string(),
+            name: "Optimized LSM Tree".to_string(),
             lsm: LSMTree::with_config(config),
             temp_dir,
         })
@@ -122,220 +111,89 @@ impl BenchmarkableDatabase for LsmTreeBenchmark {
     }
 }
 
-#[cfg(feature = "use_leveldb")]
-/// LevelDB implementation wrapper
-struct LevelDbBenchmark {
+/// Standard LSM Tree implementation with default configuration
+struct DefaultLsmTreeBenchmark {
     name: String,
-    db: Database<i32>,  // LevelDB Rust library only works with i32 keys
+    lsm: LSMTree,
     temp_dir: TempDir,
 }
 
-#[cfg(feature = "use_leveldb")]
-impl LevelDbBenchmark {
+impl DefaultLsmTreeBenchmark {
     fn new() -> Result<Self, String> {
         let temp_dir = TempDir::new().map_err(|e| format!("Failed to create temp dir: {}", e))?;
         
-        // Configure LevelDB options to match our LSM tree settings as closely as possible
-        let mut options = Options::new();
-        options.create_if_missing = true;
-        
-        // Open LevelDB instance
-        let db = match Database::open(temp_dir.path(), options) {
-            Ok(db) => db,
-            Err(e) => return Err(format!("Failed to open LevelDB: {:?}", e)),
+        // Create a configuration matching what's used in the existing benchmarks
+        let config = LSMConfig {
+            buffer_size: 64, // 64 MB
+            storage_type: StorageType::File,
+            storage_path: temp_dir.path().to_path_buf(),
+            create_path_if_missing: true,
+            max_open_files: 1000,
+            sync_writes: false,
+            fanout: 10,
+            compaction_policy: CompactionPolicyType::Tiered, // Default used in benchmarks
+            compaction_threshold: 4,
+            compression: CompressionConfig::default(), // No compression
+            adaptive_compression: AdaptiveCompressionConfig::default(), // No adaptive compression
+            collect_compression_stats: false,
+            background_compaction: true,
+            use_lock_free_memtable: true,
+            use_lock_free_block_cache: true,
+            dynamic_bloom_filter: DynamicBloomFilterConfig {
+                enabled: true,
+                target_fp_rates: vec![0.001, 0.005, 0.01, 0.02, 0.05, 0.10, 0.15, 0.20],
+                min_bits_per_entry: 2.0,
+                max_bits_per_entry: 10.0,
+                min_sample_size: 1000,
+            },
         };
         
-        // Get database name from environment variable or use default
-        let name = env::var("DB_NAME").unwrap_or_else(|_| "LevelDB".to_string());
-        
-        println!("Created real LevelDB instance at {:?}", temp_dir.path());
-        
         Ok(Self {
-            name,
-            db,
+            name: "Default LSM Tree".to_string(),
+            lsm: LSMTree::with_config(config),
             temp_dir,
         })
     }
 }
 
-#[cfg(feature = "use_leveldb")]
-impl BenchmarkableDatabase for LevelDbBenchmark {
+impl BenchmarkableDatabase for DefaultLsmTreeBenchmark {
     fn name(&self) -> &str {
         &self.name
     }
     
     fn put(&mut self, key: Key, value: Value) -> Result<(), String> {
-        // Convert i64 key to i32 (with boundary check)
-        let i32_key = if key > i32::MAX as i64 || key < i32::MIN as i64 {
-            return Err(format!("Key {} is out of range for LevelDB i32 keys", key));
-        } else {
-            key as i32
-        };
-        
-        // Convert value to bytes
-        let value_bytes = value.to_le_bytes().to_vec();
-        
-        let write_opts = WriteOptions::new();
-        match self.db.put(write_opts, i32_key, &value_bytes) {
-            Ok(_) => Ok(()),
-            Err(e) => Err(format!("LevelDB put error: {:?}", e)),
-        }
+        self.lsm.put(key, value).map_err(|e| format!("LSM put error: {}", e))
     }
     
     fn get(&self, key: Key) -> Result<Option<Value>, String> {
-        // Convert i64 key to i32 (with boundary check)
-        let i32_key = if key > i32::MAX as i64 || key < i32::MIN as i64 {
-            return Err(format!("Key {} is out of range for LevelDB i32 keys", key));
-        } else {
-            key as i32
-        };
-        
-        let read_opts = ReadOptions::new();
-        match self.db.get(read_opts, i32_key) {
-            Ok(Some(value_bytes)) => {
-                if value_bytes.len() == 8 {
-                    let mut value_array = [0u8; 8];
-                    value_array.copy_from_slice(&value_bytes);
-                    let value = i64::from_le_bytes(value_array);
-                    Ok(Some(value))
-                } else {
-                    Err(format!("Invalid value format: expected 8 bytes, got {}", value_bytes.len()))
-                }
-            },
-            Ok(None) => Ok(None),
-            Err(e) => Err(format!("LevelDB get error: {:?}", e)),
-        }
+        Ok(self.lsm.get(key))
     }
     
     fn delete(&mut self, key: Key) -> Result<(), String> {
-        // Convert i64 key to i32 (with boundary check)
-        let i32_key = if key > i32::MAX as i64 || key < i32::MIN as i64 {
-            return Err(format!("Key {} is out of range for LevelDB i32 keys", key));
-        } else {
-            key as i32
-        };
-        
-        let write_opts = WriteOptions::new();
-        match self.db.delete(write_opts, i32_key) {
-            Ok(_) => Ok(()),
-            Err(e) => Err(format!("LevelDB delete error: {:?}", e)),
-        }
+        self.lsm.delete(key).map_err(|e| format!("LSM delete error: {}", e))
     }
     
     fn range(&self, start: Key, end: Key) -> Result<Vec<(Key, Value)>, String> {
-        // For simplicity in a complex API, just iterating over all keys
-        let read_opts = ReadOptions::new();
-        let mut results = Vec::new();
-        
-        // Convert start and end to i32 with bounds checking
-        let min_start = start.max(i32::MIN as i64).min(i32::MAX as i64) as i32;
-        let max_end = end.max(i32::MIN as i64).min(i32::MAX as i64) as i32;
-        
-        // Iterate through all keys and filter based on range
-        for result in self.db.iter(read_opts) {
-            let (key, value_bytes) = result;
-            
-            // Only include keys in our range
-            if key >= min_start && key < max_end {
-                // Convert i32 key to i64
-                let i64_key = key as i64;
-                
-                // Convert value bytes to i64
-                if value_bytes.len() == 8 {
-                    let mut value_array = [0u8; 8];
-                    value_array.copy_from_slice(&value_bytes);
-                    let value = i64::from_le_bytes(value_array);
-                    
-                    results.push((i64_key, value));
-                }
-            }
-        }
-        
-        // Sort results by key just to be sure
-        results.sort_by_key(|&(k, _)| k);
-        
-        Ok(results)
+        Ok(self.lsm.range(start, end))
     }
     
     fn flush(&mut self) -> Result<(), String> {
-        // LevelDB doesn't have an explicit flush operation
-        // It flushes automatically based on the write buffer size
-        Ok(())
+        self.lsm.flush_buffer_to_level0().map_err(|e| format!("LSM flush error: {}", e))
     }
     
     fn close(self) -> Result<(), String> {
-        // LevelDB will be closed when the DB instance is dropped
+        // LSM Tree will automatically close when dropped
         // The temp_dir will also be cleaned up when dropped
         Ok(())
     }
 }
 
-#[cfg(not(feature = "use_leveldb"))]
-/// Mock LevelDB implementation for when LevelDB is not available
-struct LevelDbBenchmark {
-    name: String,
-    data: std::collections::HashMap<Key, Value>,
-    temp_dir: TempDir,
-}
-
-#[cfg(not(feature = "use_leveldb"))]
-impl LevelDbBenchmark {
-    fn new() -> Result<Self, String> {
-        let temp_dir = TempDir::new().map_err(|e| format!("Failed to create temp dir: {}", e))?;
-        
-        let name = env::var("DB_NAME").unwrap_or_else(|_| "LevelDB (Mock)".to_string());
-        
-        Ok(Self {
-            name,
-            data: std::collections::HashMap::new(),
-            temp_dir,
-        })
-    }
-}
-
-#[cfg(not(feature = "use_leveldb"))]
-impl BenchmarkableDatabase for LevelDbBenchmark {
-    fn name(&self) -> &str {
-        &self.name
-    }
-    
-    fn put(&mut self, key: Key, value: Value) -> Result<(), String> {
-        self.data.insert(key, value);
-        Ok(())
-    }
-    
-    fn get(&self, key: Key) -> Result<Option<Value>, String> {
-        Ok(self.data.get(&key).copied())
-    }
-    
-    fn delete(&mut self, key: Key) -> Result<(), String> {
-        self.data.remove(&key);
-        Ok(())
-    }
-    
-    fn range(&self, start: Key, end: Key) -> Result<Vec<(Key, Value)>, String> {
-        let mut results = Vec::new();
-        for (&k, &v) in &self.data {
-            if k >= start && k < end {
-                results.push((k, v));
-            }
-        }
-        results.sort_by_key(|&(k, _)| k);
-        Ok(results)
-    }
-    
-    fn flush(&mut self) -> Result<(), String> {
-        // Simulate a flush by writing to a file
-        let path = self.temp_dir.path().join("data.bin");
-        let data = serde_json::to_string(&self.data)
-            .map_err(|e| format!("Failed to serialize: {}", e))?;
-        fs::write(&path, data).map_err(|e| format!("Failed to write: {}", e))?;
-        Ok(())
-    }
-    
-    fn close(self) -> Result<(), String> {
-        Ok(())
-    }
+/// Operation types
+enum Operation {
+    Put(Key, Value),
+    Get(Key),
+    Delete(Key),
+    Range(Key, Key),
 }
 
 /// Workload generator output parser
@@ -414,14 +272,6 @@ impl WorkloadParser {
         
         Ok(operations)
     }
-}
-
-/// Operation types
-enum Operation {
-    Put(Key, Value),
-    Get(Key),
-    Delete(Key),
-    Range(Key, Key),
 }
 
 /// Benchmark result data structure
@@ -607,29 +457,22 @@ fn save_results_to_csv(results: &[BenchmarkResult], filename: &str) -> Result<()
     Ok(())
 }
 
-/// Main benchmark function for comparing LSM tree against LevelDB
-fn leveldb_comparison_benchmark(c: &mut Criterion) {
-    // Define workload sizes - using smaller sizes to speed up testing
+/// Main benchmark function for comparing optimized vs default configurations
+fn config_comparison_benchmark(c: &mut Criterion) {
+    // Define workload sizes for complete testing
     let workload_sizes = [
         (1_000, 100, 10, 10),    // Small workload
         (5_000, 500, 50, 50),    // Medium workload
         (100_000, 10_000, 1_000, 1_000), // Large workload
     ];
     
-    let mut group = c.benchmark_group("database_comparison");
+    let mut group = c.benchmark_group("configuration_comparison");
     
     // Configure for more consistent sampling
     group.sampling_mode(SamplingMode::Flat);
     group.sample_size(10); // Minimum required by Criterion
     
     let mut all_results = Vec::new();
-    
-    // Print conditional compilation status
-    #[cfg(feature = "use_leveldb")]
-    println!("Benchmarking with actual LevelDB implementation");
-    
-    #[cfg(not(feature = "use_leveldb"))]
-    println!("Benchmarking with mock LevelDB implementation (LevelDB not available)");
     
     for (puts, gets, ranges, deletes) in workload_sizes {
         let workload_name = format!("workload_{}k", puts / 1000);
@@ -654,9 +497,36 @@ fn leveldb_comparison_benchmark(c: &mut Criterion) {
             }
         };
         
-        // Benchmark LSM Tree
+        // Benchmark Default LSM Tree Configuration
         group.bench_function(
-            BenchmarkId::new(format!("lsm_tree_{}", workload_name), ""),
+            BenchmarkId::new(format!("default_lsm_tree_{}", workload_name), ""),
+            |b| {
+                b.iter_custom(|iters| {
+                    let mut total_duration = Duration::default();
+                    
+                    for _ in 0..iters {
+                        match DefaultLsmTreeBenchmark::new() {
+                            Ok(mut db) => {
+                                let start = Instant::now();
+                                let results = run_workload(&mut db, &operations);
+                                total_duration += start.elapsed();
+                                all_results.extend(results);
+                                let _ = db.close();
+                            },
+                            Err(e) => {
+                                eprintln!("Failed to create default LSM tree: {}", e);
+                            }
+                        }
+                    }
+                    
+                    total_duration
+                })
+            },
+        );
+        
+        // Benchmark Optimized LSM Tree Configuration
+        group.bench_function(
+            BenchmarkId::new(format!("optimized_lsm_tree_{}", workload_name), ""),
             |b| {
                 b.iter_custom(|iters| {
                     let mut total_duration = Duration::default();
@@ -671,34 +541,7 @@ fn leveldb_comparison_benchmark(c: &mut Criterion) {
                                 let _ = db.close();
                             },
                             Err(e) => {
-                                eprintln!("Failed to create LSM tree: {}", e);
-                            }
-                        }
-                    }
-                    
-                    total_duration
-                })
-            },
-        );
-        
-        // Benchmark LevelDB
-        group.bench_function(
-            BenchmarkId::new(format!("leveldb_{}", workload_name), ""),
-            |b| {
-                b.iter_custom(|iters| {
-                    let mut total_duration = Duration::default();
-                    
-                    for _ in 0..iters {
-                        match LevelDbBenchmark::new() {
-                            Ok(mut db) => {
-                                let start = Instant::now();
-                                let results = run_workload(&mut db, &operations);
-                                total_duration += start.elapsed();
-                                all_results.extend(results);
-                                let _ = db.close();
-                            },
-                            Err(e) => {
-                                eprintln!("Failed to create LevelDB: {}", e);
+                                eprintln!("Failed to create optimized LSM tree: {}", e);
                             }
                         }
                     }
@@ -710,13 +553,13 @@ fn leveldb_comparison_benchmark(c: &mut Criterion) {
     }
     
     // Save all collected results to CSV for further analysis
-    match save_results_to_csv(&all_results, "sota/leveldb_comparison_results.csv") {
-        Ok(_) => println!("Benchmark results saved to sota/leveldb_comparison_results.csv"),
+    match save_results_to_csv(&all_results, "sota/optimal_config_comparison_results.csv") {
+        Ok(_) => println!("Benchmark results saved to sota/optimal_config_comparison_results.csv"),
         Err(e) => eprintln!("Failed to save benchmark results: {}", e),
     }
     
     group.finish();
 }
 
-criterion_group!(benches, leveldb_comparison_benchmark);
+criterion_group!(benches, config_comparison_benchmark);
 criterion_main!(benches);
