@@ -1,0 +1,104 @@
+graph TB
+    %% Define styles
+    classDef levelStyle fill:#f9f,stroke:#333,stroke-width:2px;
+    classDef runStyle fill:#bbf,stroke:#333,stroke-width:1px;
+    classDef selectedRunStyle fill:#ff9,stroke:#f90,stroke-width:2px;
+    classDef compactionStyle fill:#fbb,stroke:#333,stroke-width:2px,stroke-dasharray: 5 5;
+    
+    %% Title
+    Title["Partial Compaction Strategy"]
+    
+    %% Before Compaction
+    subgraph Before_Compaction
+        BL0["Level 0"]
+        BL0Run1["Run 1"]
+        BL0Run2["Run 2 (selected)"]
+        BL0Run3["Run 3 (selected)"]
+        BL0Run4["Run 4"]
+        
+        BL1["Level 1"]
+        BL1Run1["Run 1"]
+        
+        BL2["Level 2"]
+        BL2Run1["Run 1"]
+        
+        %% Connections
+        BL0 --- BL0Run1
+        BL0 --- BL0Run2
+        BL0 --- BL0Run3
+        BL0 --- BL0Run4
+        
+        BL1 --- BL1Run1
+        BL2 --- BL2Run1
+        
+        %% Style selected runs
+        class BL0Run2,BL0Run3 selectedRunStyle
+    end
+    
+    %% After Compaction
+    subgraph After_Compaction
+        AL0["Level 0"]
+        AL0Run1["Run 1"]
+        AL0Run4["Run 4"]
+        
+        AL1["Level 1"]
+        AL1Run1["Run 1"]
+        AL1Run2["Run 2 (merged)"]
+        
+        AL2["Level 2"]
+        AL2Run1["Run 1"]
+        
+        %% Connections
+        AL0 --- AL0Run1
+        AL0 --- AL0Run4
+        
+        AL1 --- AL1Run1
+        AL1 --- AL1Run2
+        
+        AL2 --- AL2Run1
+    end
+    
+    %% Compaction Arrow
+    CompactionArrow{{"Selectively compact only some runs
+    or specific key ranges"}}
+    
+    %% Connections
+    Title --> Before_Compaction
+    Before_Compaction --> CompactionArrow
+    CompactionArrow --> After_Compaction
+    
+    %% Selection Strategies
+    subgraph Selection_Strategies
+        SelectionTitle["Selection Strategies"]
+        
+        HotSpot["Hot Spot Selection:
+        • Identify frequently accessed key ranges
+        • Prioritize compaction of these runs"]
+        
+        SizeBasedSelection["Size-Based Selection:
+        • Choose runs based on size
+        • Target smaller runs to minimize I/O"]
+        
+        TimeBasedSelection["Time-Based Selection:
+        • Select oldest runs first
+        • Balance recency with efficiency"]
+        
+        KeyRangeSelection["Key Range Selection:
+        • Compact specific key ranges
+        • Leave unrelated ranges untouched"]
+    end
+    
+    %% Key Characteristics Note
+    Characteristics["Key Characteristics:
+    • Lower write amplification through selective compaction
+    • Maintained read performance
+    • More complex implementation
+    • Ideal for large datasets with hot spots"]
+    
+    After_Compaction --> Characteristics
+    After_Compaction --> Selection_Strategies
+    
+    %% Apply styles
+    class BL0,BL1,BL2,AL0,AL1,AL2 levelStyle;
+    class BL0Run1,BL0Run4,BL1Run1,BL2Run1,AL0Run1,AL0Run4,AL1Run1,AL1Run2,AL2Run1 runStyle;
+    class CompactionArrow compactionStyle;

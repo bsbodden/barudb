@@ -31,52 +31,52 @@ sequenceDiagram
     end
     
     %% Compaction operation flow
-    LsmTree->>+CompactionPolicy: select_compaction()
+    LsmTree->>CompactionPolicy: select_compaction()
     
     note right of CompactionPolicy: Policy determines what to compact
     
     alt tiered compaction
-        CompactionPolicy-->>-LsmTree: CompactionTask (merge all runs in level)
+        CompactionPolicy-->>LsmTree: CompactionTask (merge all runs in level)
     else leveled compaction
-        CompactionPolicy-->>-LsmTree: CompactionTask (merge some runs with next level)
+        CompactionPolicy-->>LsmTree: CompactionTask (merge some runs with next level)
     else partial compaction
-        CompactionPolicy-->>-LsmTree: CompactionTask (merge subset of files)
+        CompactionPolicy-->>LsmTree: CompactionTask (merge subset of files)
     end
     
-    LsmTree->>+CompactionManager: execute_compaction(task)
+    LsmTree->>CompactionManager: execute_compaction(task)
     
     critical Acquire compaction lock
         note right of CompactionManager: Prevent concurrent compactions of same level
         
         %% Read source runs
-        CompactionManager->>+SourceLevel: get_runs_for_compaction()
-        SourceLevel-->>-CompactionManager: source_runs
+        CompactionManager->>SourceLevel: get_runs_for_compaction()
+        SourceLevel-->>CompactionManager: source_runs
         
         %% Create merge iterator over all runs
-        CompactionManager->>+MergeIterator: new(source_runs)
+        CompactionManager->>MergeIterator: new(source_runs)
         
         %% Prepare output run
-        CompactionManager->>+TargetLevel: prepare_new_run()
-        TargetLevel-->>-CompactionManager: new_run
+        CompactionManager->>TargetLevel: prepare_new_run()
+        TargetLevel-->>CompactionManager: new_run
         
         %% Merge and write data
         loop While merge iterator has data
-            CompactionManager->>+MergeIterator: next_batch()
-            MergeIterator-->>-CompactionManager: key_value_batch
+            CompactionManager->>MergeIterator: next_batch()
+            MergeIterator-->>CompactionManager: key_value_batch
             
             %% Write batch to new run
-            CompactionManager->>+Run: write_batch(key_value_batch)
-            Run-->>-CompactionManager: block_ids
+            CompactionManager->>Run: write_batch(key_value_batch)
+            Run-->>CompactionManager: block_ids
         end
         
         %% Build Bloom filter for new run
-        CompactionManager->>+BloomBuilder: build(keys)
-        BloomBuilder-->>-CompactionManager: bloom_filter
+        CompactionManager->>BloomBuilder: build(keys)
+        BloomBuilder-->>CompactionManager: bloom_filter
         CompactionManager->>Run: set_bloom_filter(bloom_filter)
         
         %% Build fence pointers for new run
-        CompactionManager->>+FPBuilder: build(block_keys)
-        FPBuilder-->>-CompactionManager: fence_pointers
+        CompactionManager->>FPBuilder: build(block_keys)
+        FPBuilder-->>CompactionManager: fence_pointers
         CompactionManager->>Run: set_fence_pointers(fence_pointers)
         
         %% Finalize the runs
@@ -90,7 +90,7 @@ sequenceDiagram
         CompactionManager->>CompactionManager: write_manifest_update()
     end
     
-    CompactionManager-->>-LsmTree: compaction complete
+    CompactionManager-->>LsmTree: compaction complete
     
     %% Optionally trigger next compaction if needed
     LsmTree->>CompactionPolicy: check_next_compaction_needed()

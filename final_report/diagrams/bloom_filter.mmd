@@ -1,0 +1,30 @@
+graph TD
+    key["Key to Query"]
+    hash1["Hash Function 1"]
+    hash2["Hash Function 2"]
+    index1["Bit Index 1"]
+    index2["Bit Index 2"]
+    check["Check Bit Values"]
+    result{{"Result"}}
+    
+    key --> hash1
+    key --> hash2
+    hash1 --> index1
+    hash2 --> index2
+    index1 --> check
+    index2 --> check
+    check -->|"All bits set to 1"| resultTrue["Possibly Present"]
+    check -->|"Any bit 0"| resultFalse["Definitely Not Present"]
+    resultTrue --> result
+    resultFalse --> result
+    
+    classDef default fill:#f9f9f9,stroke:#333,stroke-width:1px
+    classDef input fill:#d5e8d4,stroke:#82b366,stroke-width:1px
+    classDef process fill:#dae8fc,stroke:#6c8ebf,stroke-width:1px
+    classDef output fill:#ffe6cc,stroke:#d79b00,stroke-width:1px
+    classDef result fill:#f8cecc,stroke:#b85450,stroke-width:1px
+    
+    class key input
+    class hash1,hash2,index1,index2,check process
+    class resultTrue,resultFalse output
+    class result result

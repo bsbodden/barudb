@@ -28,82 +28,82 @@ sequenceDiagram
     end
     
     %% Range query operation flow
-    Client->>+LsmTree: range_query(start_key, end_key)
+    Client->>LsmTree: range_query(start_key, end_key)
     
     %% Create iterator hierarchy
-    LsmTree->>+MergeIterator: new(start_key, end_key)
+    LsmTree->>MergeIterator: new(start_key, end_key)
     
     %% Initialize component iterators
-    MergeIterator->>+MemtableIter: new(start_key, end_key)
-    MemtableIter-->>-MergeIterator: memtable_iterator
+    MergeIterator->>MemtableIter: new(start_key, end_key)
+    MemtableIter-->>MergeIterator: memtable_iterator
     
     loop For each level
-        MergeIterator->>+LevelIter: new(level, start_key, end_key)
+        MergeIterator->>LevelIter: new(level, start_key, end_key)
         
         loop For each run in level
-            LevelIter->>+RunIter: new(run, start_key, end_key)
+            LevelIter->>RunIter: new(run, start_key, end_key)
             
             %% Use fence pointers to find starting block
-            RunIter->>+FencePointers: find_block_for_key(start_key)
-            FencePointers-->>-RunIter: start_block_id
+            RunIter->>FencePointers: find_block_for_key(start_key)
+            FencePointers-->>RunIter: start_block_id
             
             %% Position at the first relevant block
-            RunIter->>+BlockCache: get_block(start_block_id)
+            RunIter->>BlockCache: get_block(start_block_id)
             
             alt block in cache
-                BlockCache-->>-RunIter: cached_block
+                BlockCache-->>RunIter: cached_block
             else block not in cache
                 RunIter->>RunIter: read_block_from_disk(start_block_id)
                 RunIter->>BlockCache: insert_block(block_data)
             end
             
             RunIter->>RunIter: position_at_key(start_key)
-            RunIter-->>-LevelIter: run_iterator
+            RunIter-->>LevelIter: run_iterator
         end
         
-        LevelIter-->>-MergeIterator: level_iterator
+        LevelIter-->>MergeIterator: level_iterator
     end
     
-    MergeIterator-->>-LsmTree: merge_iterator
+    MergeIterator-->>LsmTree: merge_iterator
     LsmTree-->>Client: range_iterator
     
     %% Iterating through results
     loop While client iterates
-        Client->>+MergeIterator: next()
+        Client->>MergeIterator: next()
         
         %% MergeIterator picks the smallest key from all child iterators
         MergeIterator->>MergeIterator: find_smallest_key()
         
         alt memtable has smallest
-            MergeIterator->>+MemtableIter: next()
-            MemtableIter-->>-MergeIterator: next_key_value
+            MergeIterator->>MemtableIter: next()
+            MemtableIter-->>MergeIterator: next_key_value
         else level iterator has smallest
-            MergeIterator->>+LevelIter: next()
+            MergeIterator->>LevelIter: next()
             
-            LevelIter->>+RunIter: next()
+            LevelIter->>RunIter: next()
             
             alt current block has more data
-                RunIter-->>-LevelIter: next_key_value
+                RunIter-->>LevelIter: next_key_value
             else need to load next block
-                RunIter->>+FencePointers: next_block_id()
-                FencePointers-->>-RunIter: next_block_id
+                RunIter->>FencePointers: next_block_id()
+                FencePointers-->>RunIter: next_block_id
                 
-                RunIter->>+BlockCache: get_block(next_block_id)
+                RunIter->>BlockCache: get_block(next_block_id)
                 
                 alt block in cache
-                    BlockCache-->>-RunIter: cached_block
+                    BlockCache-->>RunIter: cached_block
                 else block not in cache
                     RunIter->>RunIter: read_block_from_disk(next_block_id)
                     RunIter->>BlockCache: insert_block(block_data)
                 end
                 
-                RunIter-->>-LevelIter: next_key_value
+                RunIter-->>LevelIter: next_key_value
             end
             
-            LevelIter-->>-MergeIterator: next_key_value
+            LevelIter-->>MergeIterator: next_key_value
         end
         
-        MergeIterator-->>-Client: next_key_value_pair
+        MergeIterator-->>Client: next_key_value_pair
         
         alt end_key reached or no more data
             Client->>Client: end iteration

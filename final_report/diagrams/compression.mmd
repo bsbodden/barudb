@@ -1,0 +1,39 @@
+graph TD
+    uncompressed["Uncompressed Data Block"]
+    
+    subgraph "Compression Pipeline"
+        direction TB
+        
+        delta["Delta Encoding\n(encode differences)"]
+        bitpack["Bit Packing\n(use exact bit width)"]
+        lz4["LZ4 Compression\n(compress packed data)"]
+    end
+    
+    compressed["Compressed Data Block"]
+    
+    uncompressed --> delta
+    delta --> bitpack
+    bitpack --> lz4
+    lz4 --> compressed
+    
+    %% Examples
+    example1["Original: [100, 103, 105, 109]"]
+    example2["Delta: [100, 3, 2, 4]"]
+    example3["Bitpack: (100 using 7 bits) + (3,2,4 using 3 bits each)"]
+    example4["LZ4: Further compress packed bits"]
+    
+    example1 -.-> delta
+    delta -.-> example2
+    example2 -.-> bitpack
+    bitpack -.-> example3
+    example3 -.-> lz4
+    lz4 -.-> example4
+    
+    classDef default fill:#f9f9f9,stroke:#333,stroke-width:1px
+    classDef data fill:#d5e8d4,stroke:#82b366,stroke-width:1px
+    classDef process fill:#dae8fc,stroke:#6c8ebf,stroke-width:1px
+    classDef example fill:#ffe6cc,stroke:#d79b00,stroke-width:1px
+    
+    class uncompressed,compressed data
+    class delta,bitpack,lz4 process
+    class example1,example2,example3,example4 example

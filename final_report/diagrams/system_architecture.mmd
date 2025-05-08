@@ -1,5 +1,14 @@
+%% Important: Colors need to be applied in Excalidraw after importing
+%% - LsmTree, BlockCache: Green (#d5e8d4)
+%% - Memtable components: Blue (#dae8fc)
+%% - Level, Run, Block: Orange (#ffe6cc)
+%% - Compaction components: Purple (#e1d5e7)
+%% - Filter components: Yellow (#fff2cc)
+%% - Fence components: Red (#f8cecc)
+%% - Storage components: Purple (#e1d5e7)
+
 classDiagram
-    %% Class definitions with colors
+    %% Class definitions
     class LsmTree {
         +add(key, value): Result
         +get(key): Option~Value~
@@ -167,32 +176,6 @@ classDiagram
         +decompress(): Vec~u8~
     }
     
-    %% Define colors
-    class LsmTree fill:#d5e8d4,stroke:#82b366
-    class Memtable fill:#dae8fc,stroke:#6c8ebf
-    class ShardedMemtable fill:#dae8fc,stroke:#6c8ebf
-    class LockFreeMemtable fill:#dae8fc,stroke:#6c8ebf
-    class Level fill:#ffe6cc,stroke:#d79b00
-    class Run fill:#ffe6cc,stroke:#d79b00
-    class CompactionPolicy fill:#e1d5e7,stroke:#9673a6
-    class TieredCompaction fill:#e1d5e7,stroke:#9673a6
-    class LeveledCompaction fill:#e1d5e7,stroke:#9673a6
-    class LazyLeveledCompaction fill:#e1d5e7,stroke:#9673a6
-    class PartialCompaction fill:#e1d5e7,stroke:#9673a6
-    class FilterStrategy fill:#fff2cc,stroke:#d6b656
-    class StandardBloom fill:#fff2cc,stroke:#d6b656
-    class SpeedDBBloom fill:#fff2cc,stroke:#d6b656
-    class RocksDBBloom fill:#fff2cc,stroke:#d6b656
-    class FencePointers fill:#f8cecc,stroke:#b85450
-    class StandardFencePointers fill:#f8cecc,stroke:#b85450
-    class EytzingerFencePointers fill:#f8cecc,stroke:#b85450
-    class AdaptiveFencePointers fill:#f8cecc,stroke:#b85450
-    class BlockCache fill:#d5e8d4,stroke:#82b366
-    class Storage fill:#e1d5e7,stroke:#9673a6
-    class RunStorage fill:#e1d5e7,stroke:#9673a6
-    class MmapStorage fill:#e1d5e7,stroke:#9673a6
-    class Block fill:#ffe6cc,stroke:#d79b00
-    
     %% Relationships
     LsmTree *-- Memtable : contains
     LsmTree *-- "1..*" Level : contains
@@ -227,3 +210,5 @@ classDiagram
     MmapStorage *-- "1..*" Block : contains
     
     BlockCache o-- Block : caches
+    
+    %% NOTE: Colors must be added manually in Excalidraw after import

@@ -1,0 +1,24 @@
+[tool.poetry]
+name = "lsm-benchmarks"
+version = "0.1.0"
+description = "Benchmark visualization tools for LSM Tree implementation"
+authors = ["LSM Tree Team <lsm@example.com>"]
+readme = "README.md"
+packages = [
+    { include = "*.py" }
+]
+
+[tool.poetry.dependencies]
+python = "^3.8"
+matplotlib = "^3.7.1"
+numpy = "^1.24.3"
+pandas = "^2.0.1"
+seaborn = "^0.12.2"
+
+[tool.poetry.scripts]
+visualize = "visualize_benchmarks:main"
+generate_performance = "create_write_performance_chart:create_write_performance_chart"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

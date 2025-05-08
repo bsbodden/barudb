@@ -22,29 +22,29 @@ sequenceDiagram
     end
     
     %% PUT operation flow
-    Client->>+LsmTree: put(key, value)
+    Client->>LsmTree: put(key, value)
     
     %% Write to WAL first for durability
-    LsmTree->>+WAL: append(key, value)
-    WAL-->>-LsmTree: success
+    LsmTree->>WAL: append(key, value)
+    WAL-->>LsmTree: success
     
     %% Insert into memtable
-    LsmTree->>+Memtable: insert(key, value)
+    LsmTree->>Memtable: insert(key, value)
     
     note right of Memtable: Thread-safe insertion with proper locking
     
     alt if memtable not full
-        Memtable-->>-LsmTree: success
+        Memtable-->>LsmTree: success
         LsmTree-->>Client: success
     else if memtable full
         %% Memtable is full, trigger flush
-        Memtable-->>-LsmTree: memtable full
+        Memtable-->>LsmTree: memtable full
         
         %% Create new memtable
         LsmTree->>LsmTree: create new memtable
         
         %% Flush full memtable to Level 0
-        LsmTree->>+Level: flush_memtable(immutable_memtable)
+        LsmTree->>Level: flush_memtable(immutable_memtable)
         
         %% Create run components
         Level->>Level: create new run
@@ -52,19 +52,19 @@ sequenceDiagram
         Level->>Level: build fence pointers
         Level->>Level: write blocks to disk
         
-        Level-->>-LsmTree: flush complete
+        Level-->>LsmTree: flush complete
         
         %% Check if compaction needed
-        LsmTree->>+CompactionManager: check_compact_needed()
+        LsmTree->>CompactionManager: check_compact_needed()
         
         alt if compaction needed
-            CompactionManager-->>-LsmTree: needs compaction
+            CompactionManager-->>LsmTree: needs compaction
             
             %% Start async compaction
             LsmTree->>CompactionManager: schedule_compaction()
             note right of CompactionManager: Async task - doesn't block PUT operation
         else no compaction needed
-            CompactionManager-->>-LsmTree: no compaction needed
+            CompactionManager-->>LsmTree: no compaction needed
         end
         
         LsmTree-->>Client: success

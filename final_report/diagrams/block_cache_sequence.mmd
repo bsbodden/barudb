@@ -16,49 +16,49 @@ sequenceDiagram
     end
     
     %% Block cache operations
-    Client->>+BlockCache: get_block(block_id)
+    Client->>BlockCache: get_block(block_id)
     
     %% Check if block is in cache
     BlockCache->>BlockCache: lookup(block_id)
     
     alt block found in cache
         %% Update access statistics
-        BlockCache->>+EvictionPolicy: record_access(block_id)
-        EvictionPolicy-->>-BlockCache: updated_metadata
+        BlockCache->>EvictionPolicy: record_access(block_id)
+        EvictionPolicy-->>BlockCache: updated_metadata
         
         %% Check if TTL expired
-        BlockCache->>+TTLManager: is_expired(block_id)
+        BlockCache->>TTLManager: is_expired(block_id)
         
         alt block expired
-            TTLManager-->>-BlockCache: true
+            TTLManager-->>BlockCache: true
             BlockCache->>BlockCache: remove_from_cache(block_id)
             
             %% Load from storage
-            BlockCache->>+Storage: read_block(block_id)
-            Storage-->>-BlockCache: block_data
+            BlockCache->>Storage: read_block(block_id)
+            Storage-->>BlockCache: block_data
             
             %% Insert back with refreshed TTL
             BlockCache->>TTLManager: set_expiry(block_id, now + ttl)
             BlockCache->>EvictionPolicy: add_entry(block_id)
             
-            BlockCache-->>-Client: block_data
+            BlockCache-->>Client: block_data
         else block not expired
-            TTLManager-->>-BlockCache: false
-            BlockCache-->>-Client: cached_block_data
+            TTLManager-->>BlockCache: false
+            BlockCache-->>Client: cached_block_data
         end
     else block not found in cache
         %% Load from storage
-        BlockCache->>+Storage: read_block(block_id)
-        Storage-->>-BlockCache: block_data
+        BlockCache->>Storage: read_block(block_id)
+        Storage-->>BlockCache: block_data
         
         %% Check if cache is full
-        BlockCache->>+EvictionPolicy: is_cache_full()
+        BlockCache->>EvictionPolicy: is_cache_full()
         
         alt cache full - need eviction
-            EvictionPolicy-->>-BlockCache: true
+            EvictionPolicy-->>BlockCache: true
             
             %% Policy determines what to evict
-            BlockCache->>+EvictionPolicy: select_victim()
+            BlockCache->>EvictionPolicy: select_victim()
             
             alt using LRU policy
                 note right of EvictionPolicy: Least Recently Used block selected
@@ -68,23 +68,23 @@ sequenceDiagram
                 note right of EvictionPolicy: Frequency sketch determines victim
             end
             
-            EvictionPolicy-->>-BlockCache: victim_block_id
+            EvictionPolicy-->>BlockCache: victim_block_id
             
             %% Evict the selected block
             BlockCache->>BlockCache: evict_block(victim_block_id)
             BlockCache->>TTLManager: remove_expiry(victim_block_id)
         else cache has space
-            EvictionPolicy-->>-BlockCache: false
+            EvictionPolicy-->>BlockCache: false
         end
         
         %% Insert new block
         BlockCache->>BlockCache: insert_block(block_id, block_data)
-        BlockCache->>+EvictionPolicy: add_entry(block_id)
-        EvictionPolicy-->>-BlockCache: success
-        BlockCache->>+TTLManager: set_expiry(block_id, now + ttl)
-        TTLManager-->>-BlockCache: success
+        BlockCache->>EvictionPolicy: add_entry(block_id)
+        EvictionPolicy-->>BlockCache: success
+        BlockCache->>TTLManager: set_expiry(block_id, now + ttl)
+        TTLManager-->>BlockCache: success
         
-        BlockCache-->>-Client: block_data
+        BlockCache-->>Client: block_data
     end
     
     %% Periodic TTL cleanup (background task)

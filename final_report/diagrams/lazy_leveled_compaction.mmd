@@ -1,0 +1,96 @@
+graph TB
+    %% Define styles
+    classDef levelStyle fill:#f9f,stroke:#333,stroke-width:2px;
+    classDef runStyle fill:#bbf,stroke:#333,stroke-width:1px;
+    classDef compactionStyle fill:#fbb,stroke:#333,stroke-width:2px,stroke-dasharray: 5 5;
+    classDef tieredZone fill:#ffe0b2,stroke:#333,stroke-width:1px;
+    classDef leveledZone fill:#c8e6c9,stroke:#333,stroke-width:1px;
+    
+    %% Title
+    Title["Lazy Leveled Compaction Strategy"]
+    
+    %% Before Compaction
+    subgraph Before_Compaction
+        TieredLabel["Tiered Area (L0)"]
+        class TieredLabel tieredZone
+        
+        BL0["Level 0"]
+        BL0Run1["Run 1"]
+        BL0Run2["Run 2"]
+        BL0Run3["Run 3"]
+        BL0Run4["Run 4"]
+        
+        LeveledLabel["Leveled Area (L1+)"]
+        class LeveledLabel leveledZone
+        
+        BL1["Level 1"]
+        BL1Run1["Run 1"]
+        
+        BL2["Level 2"]
+        BL2Run1["Run 1"]
+        
+        BL3["Level 3"]
+        BL3Run1["Run 1"]
+        
+        %% Connections
+        BL0 --- BL0Run1
+        BL0 --- BL0Run2
+        BL0 --- BL0Run3
+        BL0 --- BL0Run4
+        
+        BL1 --- BL1Run1
+        BL2 --- BL2Run1
+        BL3 --- BL3Run1
+    end
+    
+    %% After Compaction
+    subgraph After_Compaction
+        ATieredLabel["Tiered Area (L0)"]
+        class ATieredLabel tieredZone
+        
+        AL0["Level 0"]
+        
+        ALeveledLabel["Leveled Area (L1+)"]
+        class ALeveledLabel leveledZone
+        
+        AL1["Level 1"]
+        AL1Run1["Run 1 (merged)"]
+        
+        AL2["Level 2"]
+        AL2Run1["Run 1"]
+        
+        AL3["Level 3"]
+        AL3Run1["Run 1"]
+        
+        %% Connections
+        AL0
+        
+        AL1 --- AL1Run1
+        AL2 --- AL2Run1
+        AL3 --- AL3Run1
+    end
+    
+    %% Compaction Arrow
+    CompactionArrow{{"L0: Tiered (Multiple Runs, Threshold-Based)
+    L1+: Leveled (Single Run Invariant)"}}
+    
+    %% Connections
+    Title --> Before_Compaction
+    Before_Compaction --> CompactionArrow
+    CompactionArrow --> After_Compaction
+    
+    %% Key Characteristics Note
+    Characteristics["Key Characteristics:
+    • Moderate write amplification (5-10x)
+    • Balanced read performance
+    • Good overall throughput
+    • L0 accumulates runs like tiered approach
+    • Other levels maintain single run like leveled approach
+    • Ideal for mixed workloads"]
+    
+    After_Compaction --> Characteristics
+    
+    %% Apply styles
+    class BL0,BL1,BL2,BL3,AL0,AL1,AL2,AL3 levelStyle;
+    class BL0Run1,BL0Run2,BL0Run3,BL0Run4,BL1Run1,BL2Run1,BL3Run1,AL1Run1,AL2Run1,AL3Run1 runStyle;
+    class CompactionArrow compactionStyle;

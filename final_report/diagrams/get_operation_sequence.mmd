@@ -30,42 +30,42 @@ sequenceDiagram
     end
     
     %% GET operation flow
-    Client->>+LsmTree: get(key)
+    Client->>LsmTree: get(key)
     
     %% Check memtable first
-    LsmTree->>+Memtable: get(key)
-    Memtable-->>-LsmTree: result (found/not found)
+    LsmTree->>Memtable: get(key)
+    Memtable-->>LsmTree: result (found/not found)
     
     alt key found in memtable
         LsmTree-->>Client: return value
     else key not found in memtable
         %% Check levels in sequence
         loop For each level
-            LsmTree->>+Level: get(key)
+            LsmTree->>Level: get(key)
             
             loop For each run in level
-                Level->>+BloomFilter: may_contain(key)
+                Level->>BloomFilter: may_contain(key)
                 
                 alt key may be in run
-                    BloomFilter-->>-Level: true
-                    Level->>+FencePointers: find_block(key)
-                    FencePointers-->>-Level: block_id
+                    BloomFilter-->>Level: true
+                    Level->>FencePointers: find_block(key)
+                    FencePointers-->>Level: block_id
                     
                     %% Check block cache before disk read
-                    Level->>+BlockCache: get_block(block_id)
+                    Level->>BlockCache: get_block(block_id)
                     
                     alt block in cache
-                        BlockCache-->>-Level: cached_block
+                        BlockCache-->>Level: cached_block
                     else block not in cache
-                        Level->>+Run: read_block(block_id)
-                        Run-->>-Level: block_data
+                        Level->>Run: read_block(block_id)
+                        Run-->>Level: block_data
                         Level->>BlockCache: insert_block(block_id, block_data)
                     end
                     
                     Level->>Level: search block for key
                     
                     alt key found in block
-                        Level-->>-LsmTree: found value
+                        Level-->>LsmTree: found value
                         LsmTree-->>Client: return value
                     end
                 else key definitely not in run (Bloom filter negative)
@@ -74,7 +74,7 @@ sequenceDiagram
                 end
             end
             
-            Level-->>-LsmTree: not found in this level
+            Level-->>LsmTree: not found in this level
         end
         
         LsmTree-->>Client: key not found (null)

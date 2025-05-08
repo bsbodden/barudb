@@ -1,0 +1,244 @@
+classDiagram
+    %% Class definitions
+    class LsmTree {
+        +add(key, value): Result
+        +get(key): Option~Value~
+        +delete(key): Result
+        +range(start, end): Iterator
+        +compact(): Result
+        -memtable: Memtable
+        -levels: Vec~Level~
+        -block_cache: BlockCache
+        -compaction_policy: CompactionPolicy
+    }
+    class Memtable {
+        <<Interface>>
+        +add(key, value): Result
+        +get(key): Option~Value~
+        +delete(key): Result
+        +range(start, end): Iterator
+        +flush(): Run
+        +size(): usize
+    }
+    class ShardedMemtable {
+        -shards: Vec~RwLock~BTreeMap~~
+        -current_size: AtomicUsize
+        +add(key, value): Result
+        +get(key): Option~Value~
+        +delete(key): Result
+        +range(start, end): Iterator
+    }
+    class LockFreeMemtable {
+        -data: SkipList~Key, Value~
+        -current_size: AtomicUsize
+        +add(key, value): Result
+        +get(key): Option~Value~
+        +delete(key): Result
+        +range(start, end): Iterator 
+    }
+    class Level {
+        -level_id: usize
+        -runs: RwLock~Vec~Run~~
+        -compaction_policy: CompactionPolicy
+        +add_run(run: Run): Result
+        +get(key): Option~Value~
+        +range(start, end): Iterator
+        +needs_compaction(): bool
+        +compact(): Result
+    }
+    class Run {
+        -metadata: RunMetadata
+        -storage: RunStorage
+        -filter: FilterStrategy
+        -fence_pointers: FencePointers
+        +get(key): Option~Value~
+        +range(start, end): Iterator
+        +get_block(index): Block
+    }
+    class CompactionPolicy {
+        <<Interface>>
+        +should_compact(level: &Level): bool
+        +select_runs_for_compaction(level: &Level): Vec~RunId~
+        +select_target_level(level: &Level): LevelId
+    }
+    class TieredCompaction {
+        -max_runs_per_level: usize
+        +should_compact(level: &Level): bool
+        +select_runs_for_compaction(level: &Level): Vec~RunId~
+        +select_target_level(level: &Level): LevelId
+    }
+    class LeveledCompaction {
+        -size_ratio: usize
+        +should_compact(level: &Level): bool
+        +select_runs_for_compaction(level: &Level): Vec~RunId~
+        +select_target_level(level: &Level): LevelId
+    }
+    class LazyLeveledCompaction {
+        -run_threshold: usize
+        +should_compact(level: &Level): bool
+        +select_runs_for_compaction(level: &Level): Vec~RunId~
+        +select_target_level(level: &Level): LevelId
+    }
+    class PartialCompaction {
+        -min_overlap_percent: f64
+        +should_compact(level: &Level): bool
+        +select_runs_for_compaction(level: &Level): Vec~RunId~
+        +select_target_level(level: &Level): LevelId
+    }
+    class FilterStrategy {
+        <<Interface>>
+        +may_contain(key): bool
+        +add(key): void
+    }
+    class StandardBloom {
+        -bits: BitVec
+        -hash_count: usize
+        +may_contain(key): bool
+        +add(key): void
+    }
+    class SpeedDBBloom {
+        -data: Box~[AtomicU64]~
+        -num_double_probes: u32
+        +may_contain(key): bool
+        +add_hash(h32): void
+        +add_hash_concurrently(h32): void
+    }
+    class RocksDBBloom {
+        -data: Vec~u8~
+        -k: usize
+        +may_contain(key): bool
+        +add(key): void
+    }
+    class FencePointers {
+        <<Interface>>
+        +find_block_for_key(key): Option~usize~
+        +find_blocks_in_range(start, end): Vec~usize~
+        +add(min_key, max_key, block_index): void
+        +optimize(): void
+    }
+    class StandardFencePointers {
+        -entries: Vec~(Key, Key, usize)~
+        +find_block_for_key(key): Option~usize~
+        +find_blocks_in_range(start, end): Vec~usize~
+    }
+    class EytzingerFencePointers {
+        -keys: AlignedVec~Key~
+        -block_indices: AlignedVec~usize~
+        -use_simd: bool
+        +find_block_for_key(key): Option~usize~
+        +find_blocks_in_range(start, end): Vec~usize~
+    }
+    class AdaptiveFencePointers {
+        -standard: StandardFencePointers
+        -eytzinger: EytzingerFencePointers
+        -size_threshold: AtomicUsize
+        +find_block_for_key(key): Option~usize~
+        +find_blocks_in_range(start, end): Vec~usize~
+    }
+    class BlockCache {
+        -shards: Vec~RwLock~LruCache~~
+        -stats: CacheStats
+        +get(key): Option~Block~
+        +put(key, value): void
+        +invalidate(key): void
+    }
+    class Storage {
+        <<Interface>>
+        +read_block(index): Block
+        +write_block(block): BlockId
+        +sync(): Result
+    }
+    class RunStorage {
+        <<Interface>>
+        +get_block(index): Block
+        +num_blocks(): usize
+        +metadata(): RunMetadata
+    }
+    class MmapStorage {
+        -file: File
+        -mmap: Mmap
+        -block_size: usize
+        -block_count: usize
+        +get_block(index): Block
+    }
+    class Block {
+        -data: Vec~u8~
+        -compressed: bool
+        +decompress(): Vec~u8~
+    }
+    
+    %% Relationships
+    LsmTree *-- Memtable : contains
+    LsmTree *-- "1..*" Level : contains
+    LsmTree *-- BlockCache : contains
+    LsmTree *-- CompactionPolicy : uses
+    
+    Memtable <|-- ShardedMemtable : implements
+    Memtable <|-- LockFreeMemtable : implements
+    
+    Level *-- "0..*" Run : contains
+    Level *-- CompactionPolicy : uses
+    
+    CompactionPolicy <|-- TieredCompaction : implements
+    CompactionPolicy <|-- LeveledCompaction : implements
+    CompactionPolicy <|-- LazyLeveledCompaction : implements
+    CompactionPolicy <|-- PartialCompaction : implements
+    
+    Run *-- FilterStrategy : contains
+    Run *-- FencePointers : contains
+    Run *-- RunStorage : contains
+    
+    FilterStrategy <|-- StandardBloom : implements
+    FilterStrategy <|-- SpeedDBBloom : implements
+    FilterStrategy <|-- RocksDBBloom : implements
+    
+    FencePointers <|-- StandardFencePointers : implements
+    FencePointers <|-- EytzingerFencePointers : implements
+    FencePointers <|-- AdaptiveFencePointers : implements
+    
+    RunStorage <|-- MmapStorage : implements
+    
+    MmapStorage *-- "1..*" Block : contains
+    
+    BlockCache o-- Block : caches
+    
+    %% Style definitions
+    classDef lsmTreeStyle fill:#d5e8d4,stroke:#82b366
+    classDef memtableStyle fill:#dae8fc,stroke:#6c8ebf
+    classDef levelStyle fill:#ffe6cc,stroke:#d79b00
+    classDef compactionStyle fill:#e1d5e7,stroke:#9673a6
+    classDef filterStyle fill:#fff2cc,stroke:#d6b656
+    classDef fenceStyle fill:#f8cecc,stroke:#b85450
+    classDef storageStyle fill:#e1d5e7,stroke:#9673a6
+    
+    %% Apply styles
+    LsmTree:::lsmTreeStyle
+    BlockCache:::lsmTreeStyle
+    
+    Memtable:::memtableStyle
+    ShardedMemtable:::memtableStyle
+    LockFreeMemtable:::memtableStyle
+    
+    Level:::levelStyle
+    Run:::levelStyle
+    Block:::levelStyle
+    
+    CompactionPolicy:::compactionStyle
+    TieredCompaction:::compactionStyle
+    LeveledCompaction:::compactionStyle
+    LazyLeveledCompaction:::compactionStyle
+    PartialCompaction:::compactionStyle
+    
+    FilterStrategy:::filterStyle
+    StandardBloom:::filterStyle
+    SpeedDBBloom:::filterStyle
+    RocksDBBloom:::filterStyle
+    
+    FencePointers:::fenceStyle
+    StandardFencePointers:::fenceStyle
+    EytzingerFencePointers:::fenceStyle
+    AdaptiveFencePointers:::fenceStyle
+    
+    Storage:::storageStyle
+    RunStorage:::storageStyle
+    MmapStorage:::storageStyle

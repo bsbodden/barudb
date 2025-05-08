@@ -1,0 +1,27 @@
+graph TD
+    client["Client Applications"]
+    interface["Client-Server Interface"]
+    core["LSM Tree Core"]
+    memtable["Memtable\n- Sharded BTree\n- Lock-Free Impl"]
+    levels["Levels\n- Level 0\n- Level 1...N"]
+    cache["Block Cache\n- LRU\n- Sharded"]
+    runs["Runs\n- Bloom Filters\n- Fence Pointers\n- Blocks"]
+    storage["Storage Layer\n- Compression\n- Serialization\n- Recovery"]
+    fs["Filesystem"]
+    
+    client -- "CS265 DSL Commands" --> interface
+    interface --> core
+    core --> memtable
+    core --> levels
+    core --> cache
+    levels --> runs
+    runs --> storage
+    storage --> fs
+    
+    classDef default fill:#f9f9f9,stroke:#333,stroke-width:1px
+    classDef component fill:#d5e8d4,stroke:#82b366,stroke-width:1px
+    classDef storage fill:#dae8fc,stroke:#6c8ebf,stroke-width:1px
+    
+    class client,interface default
+    class core,memtable,levels,cache,runs component
+    class storage,fs storage

@@ -1,0 +1,74 @@
+classDiagram
+    %% Class and trait definitions with clear identification
+    class LsmTree["LsmTree"]
+    class Memtable["<<trait>> Memtable"]
+    class ShardedMemtable["ShardedMemtable"]
+    class LockFreeMemtable["LockFreeMemtable"]
+    class Level["Level"]
+    class Run["Run"]
+    class CompactionPolicy["<<trait>> CompactionPolicy"]
+    class TieredCompaction["TieredCompaction"]
+    class LeveledCompaction["LeveledCompaction"]
+    class LazyLeveledCompaction["LazyLeveledCompaction"]
+    class PartialCompaction["PartialCompaction"]
+    class FilterStrategy["<<trait>> FilterStrategy"]
+    class StandardBloom["StandardBloom"]
+    class SpeedDBBloom["SpeedDBBloom"]
+    class RocksDBBloom["RocksDBBloom"]
+    class FencePointers["<<trait>> FencePointers"]
+    class StandardFencePointers["StandardFencePointers"]
+    class EytzingerFencePointers["EytzingerFencePointers"]
+    class AdaptiveFencePointers["AdaptiveFencePointers"]
+    class BlockCache["BlockCache"]
+    class Storage["<<trait>> Storage"]
+    class RunStorage["<<trait>> RunStorage"]
+    class MmapStorage["MmapStorage"]
+    class Block["Block"]
+    
+    %% Fix: Connect Storage properly
+    Storage <|-- RunStorage
+    
+    %% Relationships
+    LsmTree *-- Memtable : contains
+    LsmTree *-- "1..*" Level : contains
+    LsmTree *-- BlockCache : contains
+    LsmTree *-- CompactionPolicy : uses
+    
+    Memtable <|-- ShardedMemtable : implements
+    Memtable <|-- LockFreeMemtable : implements
+    
+    Level *-- "0..*" Run : contains
+    Level *-- CompactionPolicy : uses
+    
+    CompactionPolicy <|-- TieredCompaction : implements
+    CompactionPolicy <|-- LeveledCompaction : implements
+    CompactionPolicy <|-- LazyLeveledCompaction : implements
+    CompactionPolicy <|-- PartialCompaction : implements
+    
+    Run *-- FilterStrategy : contains
+    Run *-- FencePointers : contains
+    Run *-- RunStorage : contains
+    
+    FilterStrategy <|-- StandardBloom : implements
+    FilterStrategy <|-- SpeedDBBloom : implements
+    FilterStrategy <|-- RocksDBBloom : implements
+    
+    FencePointers <|-- StandardFencePointers : implements
+    FencePointers <|-- EytzingerFencePointers : implements
+    FencePointers <|-- AdaptiveFencePointers : implements
+    
+    RunStorage <|-- MmapStorage : implements
+    
+    MmapStorage *-- "1..*" Block : contains
+    
+    BlockCache o-- Block : caches
+
+%% Note: The diagram will need to be colored manually in Excalidraw with the following scheme:
+%% - LsmTree, BlockCache: Green (#d5e8d4)
+%% - Memtable components: Blue (#dae8fc)
+%% - Level, Run, Block: Orange (#ffe6cc)
+%% - Compaction components: Purple (#e1d5e7)
+%% - Filter components: Yellow (#fff2cc)
+%% - Fence components: Red (#f8cecc)
+%% - Storage components: Purple (#e1d5e7)
+%% - Traits should be dashed boxes when manually styling in Excalidraw

@@ -1,0 +1,209 @@
+graph TB
+    %% Define styles
+    classDef levelStyle fill:#f9f,stroke:#333,stroke-width:2px;
+    classDef runStyle fill:#bbf,stroke:#333,stroke-width:1px;
+    classDef flushStyle fill:#bfb,stroke:#333,stroke-width:1px;
+    classDef compactionStyle fill:#fbb,stroke:#333,stroke-width:2px,stroke-dasharray: 5 5;
+    classDef arrowStyle stroke:#f66,stroke-width:2px;
+    
+    %% Title
+    Title["Compaction Strategies Comparison"]
+    
+    %% Top Row: Tiered and Leveled
+    subgraph TopRow
+        direction LR
+        
+        %% Tiered Compaction Section - Left Top
+        subgraph Tiered_Compaction
+            TieredTitle["Tiered Compaction"]
+            
+            %% Before Compaction
+            subgraph Tiered_Before
+                TBL0["Level 0"]
+                TBL0Run1["Run 1"]
+                TBL0Run2["Run 2"]
+                TBL0Run3["Run 3"]
+                
+                TBL1["Level 1"]
+                TBL1Run1["Run 1"]
+                TBL1Run2["Run 2"]
+                
+                TBL0 --- TBL0Run1
+                TBL0 --- TBL0Run2
+                TBL0 --- TBL0Run3
+                
+                TBL1 --- TBL1Run1
+                TBL1 --- TBL1Run2
+            end
+            
+            %% After Compaction
+            subgraph Tiered_After
+                TAL0["Level 0"]
+                
+                TAL1["Level 1"]
+                TAL1Run1["Run 1"]
+                TAL1Run2["Run 2"]
+                
+                TAL2["Level 2"]
+                TAL2Run1["Run 1 (merged)"]
+                
+                TAL0
+                
+                TAL1 --- TAL1Run1
+                TAL1 --- TAL1Run2
+                
+                TAL2 --- TAL2Run1
+            end
+            
+            TieredArrow["Merge All Runs\nWhen Threshold Reached"]
+            Tiered_Before --> TieredArrow --> Tiered_After
+            
+            TieredNotes["• Lower write amplification (2-4x)
+            • Higher read amplification
+            • Better write throughput
+            • Ideal for write-heavy workloads"]
+        end
+        
+        %% Leveled Compaction Section - Right Top
+        subgraph Leveled_Compaction
+            LeveledTitle["Leveled Compaction"]
+            
+            %% Before Compaction
+            subgraph Leveled_Before
+                LBL0["Level 0"]
+                LBL0Run1["Run 1"]
+                
+                LBL1["Level 1"]
+                LBL1Run1["Run 1"]
+                
+                NewRun["New Run"]
+                
+                LBL0 --- LBL0Run1
+                LBL1 --- LBL1Run1
+                
+                NewRun -.-> LBL1
+            end
+            
+            %% After Compaction
+            subgraph Leveled_After
+                LAL0["Level 0"]
+                LAL0Run1["Run 1"]
+                
+                LAL1["Level 1"]
+                LAL1Run1["Run 1 (merged)"]
+                
+                LAL0 --- LAL0Run1
+                LAL1 --- LAL1Run1
+            end
+            
+            LeveledArrow["Merge New Run\nWith Existing Run Immediately"]
+            Leveled_Before --> LeveledArrow --> Leveled_After
+            
+            LeveledNotes["• Higher write amplification (10-20x)
+            • Lower read amplification
+            • Better read performance
+            • Ideal for read-heavy workloads"]
+        end
+    end
+    
+    %% Bottom Row: Lazy Leveled and Partial
+    subgraph BottomRow
+        direction LR
+        
+        %% Lazy Leveled Compaction Section - Left Bottom
+        subgraph Lazy_Leveled_Compaction
+            LazyTitle["Lazy Leveled Compaction"]
+            
+            %% Before Compaction
+            subgraph Lazy_Before
+                LLBL0["Level 0"]
+                LLBL0Run1["Run 1"]
+                LLBL0Run2["Run 2"]
+                LLBL0Run3["Run 3"]
+                
+                LLBL1["Level 1"]
+                LLBL1Run1["Run 1"]
+                
+                LLBL0 --- LLBL0Run1
+                LLBL0 --- LLBL0Run2
+                LLBL0 --- LLBL0Run3
+                
+                LLBL1 --- LLBL1Run1
+            end
+            
+            %% After Compaction
+            subgraph Lazy_After
+                LLAL0["Level 0"]
+                
+                LLAL1["Level 1"]
+                LLAL1Run1["Run 1 (merged)"]
+                
+                LLAL0
+                
+                LLAL1 --- LLAL1Run1
+            end
+            
+            LazyArrow["L0: Tiered (Multiple Runs)
+            L1+: Leveled (Single Run)"]
+            Lazy_Before --> LazyArrow --> Lazy_After
+            
+            LazyNotes["• Moderate write amplification (5-10x)
+            • Balanced read performance
+            • Good overall throughput
+            • Ideal for mixed workloads"]
+        end
+        
+        %% Partial Compaction Section - Right Bottom
+        subgraph Partial_Compaction
+            PartialTitle["Partial Compaction"]
+            
+            %% Before Compaction
+            subgraph Partial_Before
+                PBL0["Level 0"]
+                PBL0Run1["Run 1"]
+                PBL0Run2["Run 2"]
+                PBL0Run3["Run 3"]
+                
+                PBL1["Level 1"]
+                PBL1Run1["Run 1"]
+                
+                PBL0 --- PBL0Run1
+                PBL0 --- PBL0Run2
+                PBL0 --- PBL0Run3
+                
+                PBL1 --- PBL1Run1
+            end
+            
+            %% After Compaction
+            subgraph Partial_After
+                PAL0["Level 0"]
+                PAL0Run1["Run 1"]
+                
+                PAL1["Level 1"]
+                PAL1Run1["Run 1"]
+                PAL1Run2["Run 2 (merged)"]
+                
+                PAL0 --- PAL0Run1
+                
+                PAL1 --- PAL1Run1
+                PAL1 --- PAL1Run2
+            end
+            
+            PartialArrow["Selectively Compact\nOnly Some Runs"]
+            Partial_Before --> PartialArrow --> Partial_After
+            
+            PartialNotes["• Lower write amplification
+            • Maintained read performance
+            • More complex implementation
+            • Ideal for large datasets with hot spots"]
+        end
+    end
+    
+    Title --> TopRow
+    Title --> BottomRow
+    
+    %% Apply styles
+    class TBL0,TBL1,TAL0,TAL1,TAL2,LBL0,LBL1,LAL0,LAL1,LLBL0,LLBL1,LLAL0,LLAL1,PBL0,PBL1,PAL0,PAL1 levelStyle;
+    class TBL0Run1,TBL0Run2,TBL0Run3,TBL1Run1,TBL1Run2,TAL1Run1,TAL1Run2,TAL2Run1,LBL0Run1,LBL1Run1,LAL0Run1,LAL1Run1,LLBL0Run1,LLBL0Run2,LLBL0Run3,LLBL1Run1,LLAL1Run1,PBL0Run1,PBL0Run2,PBL0Run3,PBL1Run1,PAL0Run1,PAL1Run1,PAL1Run2 runStyle;
+    class NewRun flushStyle;
+    class TieredArrow,LeveledArrow,LazyArrow,PartialArrow compactionStyle;

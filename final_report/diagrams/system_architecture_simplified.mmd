@@ -1,0 +1,70 @@
+classDiagram
+    %% Class definitions without internal details
+    class LsmTree
+    class Memtable
+    class ShardedMemtable
+    class LockFreeMemtable
+    class Level
+    class Run
+    class CompactionPolicy
+    class TieredCompaction
+    class LeveledCompaction
+    class LazyLeveledCompaction
+    class PartialCompaction
+    class FilterStrategy
+    class StandardBloom
+    class SpeedDBBloom
+    class RocksDBBloom
+    class FencePointers
+    class StandardFencePointers
+    class EytzingerFencePointers
+    class AdaptiveFencePointers
+    class BlockCache
+    class Storage
+    class RunStorage
+    class MmapStorage
+    class Block
+    
+    %% Relationships
+    LsmTree *-- Memtable : contains
+    LsmTree *-- "1..*" Level : contains
+    LsmTree *-- BlockCache : contains
+    LsmTree *-- CompactionPolicy : uses
+    
+    Memtable <|-- ShardedMemtable : implements
+    Memtable <|-- LockFreeMemtable : implements
+    
+    Level *-- "0..*" Run : contains
+    Level *-- CompactionPolicy : uses
+    
+    CompactionPolicy <|-- TieredCompaction : implements
+    CompactionPolicy <|-- LeveledCompaction : implements
+    CompactionPolicy <|-- LazyLeveledCompaction : implements
+    CompactionPolicy <|-- PartialCompaction : implements
+    
+    Run *-- FilterStrategy : contains
+    Run *-- FencePointers : contains
+    Run *-- RunStorage : contains
+    
+    FilterStrategy <|-- StandardBloom : implements
+    FilterStrategy <|-- SpeedDBBloom : implements
+    FilterStrategy <|-- RocksDBBloom : implements
+    
+    FencePointers <|-- StandardFencePointers : implements
+    FencePointers <|-- EytzingerFencePointers : implements
+    FencePointers <|-- AdaptiveFencePointers : implements
+    
+    RunStorage <|-- MmapStorage : implements
+    
+    MmapStorage *-- "1..*" Block : contains
+    
+    BlockCache o-- Block : caches
+
+%% Note: The diagram will need to be colored manually in Excalidraw with the following scheme:
+%% - LsmTree, BlockCache: Green (#d5e8d4)
+%% - Memtable components: Blue (#dae8fc)
+%% - Level, Run, Block: Orange (#ffe6cc)
+%% - Compaction components: Purple (#e1d5e7)
+%% - Filter components: Yellow (#fff2cc)
+%% - Fence components: Red (#f8cecc)
+%% - Storage components: Purple (#e1d5e7)

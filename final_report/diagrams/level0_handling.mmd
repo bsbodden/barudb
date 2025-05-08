@@ -1,0 +1,86 @@
+graph TD
+    %% Tiered Compaction subgraph
+    subgraph "Tiered Compaction"
+        T_MemTable[Memtable]
+        T_BufferFlush[Buffer Flush]
+        T_L0[Level 0<br>Multiple Runs Allowed]
+        T_Run1[Run 1]
+        T_Run2[Run 2]
+        T_Run3[Run 3]
+        T_Threshold[Threshold = 3 runs]
+        T_L1[Level 1]
+        
+        T_MemTable --> T_BufferFlush
+        T_BufferFlush --> T_L0
+        T_L0 --> T_Run1
+        T_L0 --> T_Run2
+        T_L0 --> T_Run3
+        T_Threshold --> |"Trigger<br>Compaction"| T_Merge[Merge All Runs]
+        T_Run1 --> T_Merge
+        T_Run2 --> T_Merge
+        T_Run3 --> T_Merge
+        T_Merge --> T_L1
+    end
+    
+    %% Leveled Compaction subgraph
+    subgraph "Leveled Compaction"
+        L_MemTable[Memtable]
+        L_BufferFlush[Buffer Flush]
+        L_L0[Level 0<br>Max 1 Run]
+        L_NewRun[New Run from Flush]
+        L_ExistingRun[Existing Run]
+        L_ImmediateCompaction[Immediate Compaction]
+        L_L1[Level 1]
+        
+        L_MemTable --> L_BufferFlush
+        L_BufferFlush --> L_NewRun
+        L_L0 --> L_ExistingRun
+        L_NewRun --> |"Violates<br>1-Run Invariant"| L_ImmediateCompaction
+        L_ExistingRun --> L_ImmediateCompaction
+        L_ImmediateCompaction --> L_L0
+        
+        %% When L0 gets too large
+        L_L0Overflow[L0 Size > L1 Size ÷ Ratio]
+        L_L0 --> L_L0Overflow
+        L_L0Overflow --> |"Trigger<br>Compaction"| L_L1
+    end
+    
+    %% Lazy Leveled Compaction subgraph
+    subgraph "Lazy Leveled Compaction"
+        LL_MemTable[Memtable]
+        LL_BufferFlush[Buffer Flush]
+        LL_L0[Level 0<br>Multiple Runs Allowed]
+        LL_Run1[Run 1]
+        LL_Run2[Run 2]
+        LL_Run3[Run 3]
+        LL_Threshold[Threshold = 3 runs]
+        LL_L1[Level 1<br>Max 1 Run]
+        LL_L1Run[Single Large Run]
+        
+        LL_MemTable --> LL_BufferFlush
+        LL_BufferFlush --> LL_L0
+        LL_L0 --> LL_Run1
+        LL_L0 --> LL_Run2
+        LL_L0 --> LL_Run3
+        LL_Threshold --> |"Trigger<br>Compaction"| LL_Merge[Merge All L0 Runs]
+        LL_Run1 --> LL_Merge
+        LL_Run2 --> LL_Merge
+        LL_Run3 --> LL_Merge
+        LL_Merge --> |"Merge with L1 Run"| LL_L1
+        LL_L1 --> LL_L1Run
+    end
+    
+    %% Styling
+    classDef memtable fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px;
+    classDef level0 fill:#ffe6cc,stroke:#d79b00,stroke-width:2px;
+    classDef level1 fill:#d5e8d4,stroke:#82b366,stroke-width:2px;
+    classDef run fill:#fff2cc,stroke:#d6b656,stroke-width:1px;
+    classDef operation fill:#f8cecc,stroke:#b85450,stroke-width:1px;
+    classDef threshold fill:#e1d5e7,stroke:#9673a6,stroke-width:1px;
+    
+    class T_MemTable,L_MemTable,LL_MemTable memtable;
+    class T_L0,L_L0,LL_L0 level0;
+    class T_L1,L_L1,LL_L1 level1;
+    class T_Run1,T_Run2,T_Run3,L_NewRun,L_ExistingRun,LL_Run1,LL_Run2,LL_Run3,LL_L1Run run;
+    class T_BufferFlush,L_BufferFlush,LL_BufferFlush,T_Merge,L_ImmediateCompaction,LL_Merge operation;
+    class T_Threshold,LL_Threshold,L_L0Overflow threshold;

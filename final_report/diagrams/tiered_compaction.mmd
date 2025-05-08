@@ -1,0 +1,82 @@
+graph TB
+    %% Define styles
+    classDef levelStyle fill:#f9f,stroke:#333,stroke-width:2px;
+    classDef runStyle fill:#bbf,stroke:#333,stroke-width:1px;
+    classDef compactionStyle fill:#fbb,stroke:#333,stroke-width:2px,stroke-dasharray: 5 5;
+    
+    %% Title
+    Title["Tiered Compaction Strategy"]
+    
+    %% Before Compaction
+    subgraph Before_Compaction
+        BL0["Level 0"]
+        BL0Run1["Run 1"]
+        BL0Run2["Run 2"]
+        BL0Run3["Run 3"]
+        BL0Run4["Run 4"]
+        
+        BL1["Level 1"]
+        BL1Run1["Run 1"]
+        BL1Run2["Run 2"]
+        
+        BL2["Level 2"]
+        BL2Run1["Run 1"]
+        
+        BL0 --- BL0Run1
+        BL0 --- BL0Run2
+        BL0 --- BL0Run3
+        BL0 --- BL0Run4
+        
+        BL1 --- BL1Run1
+        BL1 --- BL1Run2
+        
+        BL2 --- BL2Run1
+    end
+    
+    %% After Compaction
+    subgraph After_Compaction
+        AL0["Level 0"]
+        
+        AL1["Level 1"]
+        AL1Run1["Run 1"]
+        AL1Run2["Run 2"]
+        
+        AL2["Level 2"]
+        AL2Run1["Run 1"]
+        
+        AL3["Level 3"]
+        AL3Run1["Run 1 (merged)"]
+        
+        AL0
+        
+        AL1 --- AL1Run1
+        AL1 --- AL1Run2
+        
+        AL2 --- AL2Run1
+        
+        AL3 --- AL3Run1
+    end
+    
+    %% Compaction Arrow
+    CompactionArrow{{"When a level reaches its run threshold,
+    all runs are merged and moved to the next level"}}
+    
+    %% Connections
+    Title --> Before_Compaction
+    Before_Compaction --> CompactionArrow
+    CompactionArrow --> After_Compaction
+    
+    %% Key Characteristics Note
+    Characteristics["Key Characteristics:
+    • Lower write amplification (2-4x)
+    • Higher read amplification (must check multiple runs per level)
+    • Better write throughput
+    • Slower read operations
+    • Ideal for write-heavy workloads"]
+    
+    After_Compaction --> Characteristics
+    
+    %% Apply styles
+    class BL0,BL1,BL2,AL0,AL1,AL2,AL3 levelStyle;
+    class BL0Run1,BL0Run2,BL0Run3,BL0Run4,BL1Run1,BL1Run2,BL2Run1,AL1Run1,AL1Run2,AL2Run1,AL3Run1 runStyle;
+    class CompactionArrow compactionStyle;
