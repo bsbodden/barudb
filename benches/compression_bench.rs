@@ -1,10 +1,10 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use lsm_tree::run::compression::{
+use barudb::run::compression::{
     BitPackCompression, CompressionFactory, CompressionStrategy, CompressionType,
     NoopCompression, CompressionStats, DeltaCompression, DictionaryCompression,
     Lz4Compression, SnappyCompression
 };
-use lsm_tree::types::{Key, Value};
+use barudb::types::{Key, Value};
 use rand::{Rng, SeedableRng};
 use rand::rngs::StdRng;
 use std::time::{Duration, Instant};

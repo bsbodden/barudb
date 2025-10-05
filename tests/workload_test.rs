@@ -1,4 +1,4 @@
-use lsm_tree::test_helpers::{send_command, start_server};
+use barudb::test_helpers::{send_command, start_server};
 
 #[tokio::test]
 #[ignore = "Long-running workload test; run explicitly with 'cargo test test_workload_execution -- --ignored'"]

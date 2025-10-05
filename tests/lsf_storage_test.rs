@@ -1,7 +1,7 @@
-use lsm_tree::run::{
+use barudb::run::{
     LSFStorage, Run, RunStorage, StorageOptions
 };
-use lsm_tree::types::{Key, StorageType};
+use barudb::types::{Key, StorageType};
 use tempfile::tempdir;
 
 #[test]

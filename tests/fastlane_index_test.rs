@@ -1,5 +1,5 @@
-use lsm_tree::run::{FastLaneFencePointers, StandardFencePointers};
-use lsm_tree::types::Key;
+use barudb::run::{FastLaneFencePointers, StandardFencePointers};
+use barudb::types::Key;
 
 /// Test to debug the coverage issues with sequential keys
 #[test]

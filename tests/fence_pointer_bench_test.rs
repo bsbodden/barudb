@@ -1,9 +1,9 @@
-use lsm_tree::run::{
+use barudb::run::{
     StandardFencePointers, OriginalFastLaneFencePointers,
     SimpleFastLaneFencePointers, TwoLevelFastLaneFencePointers,
     FencePointersInterface
 };
-use lsm_tree::types::Key;
+use barudb::types::Key;
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use std::time::Instant;
 

@@ -4,8 +4,8 @@ extern crate csv; // For CSV writing
 extern crate fastrand; // For random number generation
 
 // Using the crate name as defined in Cargo.toml
-use lsm_tree::{Key, Value, command::{Command, Response}};
-use lsm_tree::lsm_tree::{LsmConfig, LsmTree};
+use barudb::{Key, Value, command::{Command, Response}};
+use barudb::lsm_tree::{LsmConfig, LsmTree};
 use std::fs;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};

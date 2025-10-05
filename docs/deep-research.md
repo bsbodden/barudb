@@ -215,7 +215,7 @@ ever-evolving demands of modern data management.
 3. Dissecting, Designing, and Optimizing LSM-based Data Stores \- CS-People by full name, accessed April 19,
    2025, [https://cs-people.bu.edu/mathan/publications/sigmod22-sarkar-tutorial.pdf](https://cs-people.bu.edu/mathan/publications/sigmod22-sarkar-tutorial.pdf)
 4. Implementing LSM Trees in Golang: A Comprehensive Guide \- DZone, accessed April 19,
-   2025, [https://dzone.com/articles/implementing-lsm-trees-in-golang](https://dzone.com/articles/implementing-lsm-trees-in-golang)
+   2025, [https://dzone.com/articles/implementing-barudbs-in-golang](https://dzone.com/articles/implementing-barudbs-in-golang)
 5. What is a Log Structured Merge Tree? Definition & FAQs | ScyllaDB, accessed April 19,
    2025, [https://www.scylladb.com/glossary/log-structured-merge-tree/](https://www.scylladb.com/glossary/log-structured-merge-tree/)
 6. The LSM Design Space and its Read Optimizations \- Subhadeep Sarkar, accessed April 19,
@@ -237,7 +237,7 @@ ever-evolving demands of modern data management.
 14. OceanBase at VLDB 2024: Exploring the Future of Distributed Database, accessed April 19,
     2025, [https://en.oceanbase.com/blog/13937856000](https://en.oceanbase.com/blog/13937856000)
 15. Meetup: Log-structured Merge (LSM) Trees in the Cloud Era | TiDB, accessed April 19,
-    2025, [https://www.pingcap.com/event/log-structured-merge-lsm-trees-in-the-cloud-era/](https://www.pingcap.com/event/log-structured-merge-lsm-trees-in-the-cloud-era/)
+    2025, [https://www.pingcap.com/event/log-structured-merge-barudbs-in-the-cloud-era/](https://www.pingcap.com/event/log-structured-merge-barudbs-in-the-cloud-era/)
 16. HotRAP: Hot Record Retention and Promotion for LSM-trees with Tiered Storage \- arXiv, accessed April 19,
     2025, [https://arxiv.org/html/2402.02070v2](https://arxiv.org/html/2402.02070v2)
 17. Mutant: Balancing Storage Cost and Latency in LSM-Tree Data Stores \- Juncheng Yang, accessed April 19,
@@ -265,7 +265,7 @@ ever-evolving demands of modern data management.
 28. \[PDF\] The Log-Structured Merge-Bush & the Wacky Continuum \- Semantic Scholar, accessed April 19,
     2025, [https://www.semanticscholar.org/paper/The-Log-Structured-Merge-Bush-%26-the-Wacky-Continuum-Dayan-Idreos/deb121b7622242b609544060ee825d13679ab8aa](https://www.semanticscholar.org/paper/The-Log-Structured-Merge-Bush-%26-the-Wacky-Continuum-Dayan-Idreos/deb121b7622242b609544060ee825d13679ab8aa)
 29. \[PDF\] Disco: A Compact Index for LSM-trees | CiteDrive, accessed April 19,
-    2025, [https://www.citedrive.com/en/discovery/disco-a-compact-index-for-lsm-trees/](https://www.citedrive.com/en/discovery/disco-a-compact-index-for-lsm-trees/)
+    2025, [https://www.citedrive.com/en/discovery/disco-a-compact-index-for-barudbs/](https://www.citedrive.com/en/discovery/disco-a-compact-index-for-barudbs/)
 30. DirectLoad:A Fast Web ... \- NSF Public Access Repository, accessed April 19,
     2025, [https://par.nsf.gov/biblio/10171706-directload-fast-web-scaleindexsystemacrosslargeregionalcenters](https://par.nsf.gov/biblio/10171706-directload-fast-web-scaleindexsystemacrosslargeregionalcenters)
 31. An Update-intensive LSM-based R-tree Index \- CS@Purdue, accessed April 19,
@@ -317,7 +317,7 @@ ever-evolving demands of modern data management.
 53. Rethinking my Rust LSM storage engine : r/databasedevelopment \- Reddit, accessed April 19,
     2025, [https://www.reddit.com/r/databasedevelopment/comments/19ahy44/rethinking\_my\_rust\_lsm\_storage\_engine/](https://www.reddit.com/r/databasedevelopment/comments/19ahy44/rethinking_my_rust_lsm_storage_engine/)
 54. MyRocks: LSM-Tree Database Storage Engine Serving Facebook's Social Graph, accessed April 19,
-    2025, [https://research.facebook.com/publications/myrocks-lsm-tree-database-storage-engine-serving-facebooks-social-graph/](https://research.facebook.com/publications/myrocks-lsm-tree-database-storage-engine-serving-facebooks-social-graph/)
+    2025, [https://research.facebook.com/publications/myrocks-barudb-database-storage-engine-serving-facebooks-social-graph/](https://research.facebook.com/publications/myrocks-barudb-database-storage-engine-serving-facebooks-social-graph/)
 55. Revisiting Secondary Indexing in LSM-based Storage Systems with Persistent Memory \- USENIX, accessed April 19,
     2025, [https://www.usenix.org/system/files/atc23-wang-jing.pdf](https://www.usenix.org/system/files/atc23-wang-jing.pdf)
 56. Some good strategies to implement \- Issues \- Discuss Dgraph, accessed April 19,
@@ -325,7 +325,7 @@ ever-evolving demands of modern data management.
 57. LSM tree "popular" implementations : r/databasedevelopment \- Reddit, accessed April 19,
     2025, [https://www.reddit.com/r/databasedevelopment/comments/1dinqu5/lsm\_tree\_popular\_implementations/](https://www.reddit.com/r/databasedevelopment/comments/1dinqu5/lsm_tree_popular_implementations/)
 58. Revisiting B+-tree vs. LSM-tree \- USENIX, accessed April 19,
-    2025, [https://www.usenix.org/publications/loginonline/revisit-b-tree-vs-lsm-tree-upon-arrival-modern-storage-hardware-built](https://www.usenix.org/publications/loginonline/revisit-b-tree-vs-lsm-tree-upon-arrival-modern-storage-hardware-built)
+    2025, [https://www.usenix.org/publications/loginonline/revisit-b-tree-vs-barudb-upon-arrival-modern-storage-hardware-built](https://www.usenix.org/publications/loginonline/revisit-b-tree-vs-barudb-upon-arrival-modern-storage-hardware-built)
 59. Autumn: A Scalable Read Optimized LSM-tree based Key-Value Stores with Fast Point and Range Read Speed \- arXiv,
     accessed April 19, 2025, [https://arxiv.org/html/2305.05074v2](https://arxiv.org/html/2305.05074v2)
 60. TreeLine: an update-in-place key-value store for modern storage, accessed April 19,
@@ -339,7 +339,7 @@ ever-evolving demands of modern data management.
 64. Starting from Zero: Build an LSM Database with 500 Lines of Code \- Alibaba Cloud, accessed April 19,
     2025, [https://www.alibabacloud.com/blog/starting-from-zero-build-an-lsm-database-with-500-lines-of-code\_598114](https://www.alibabacloud.com/blog/starting-from-zero-build-an-lsm-database-with-500-lines-of-code_598114)
 65. Are there other algorithms like LSM tree? \- Stack Overflow, accessed April 19,
-    2025, [https://stackoverflow.com/questions/4858706/are-there-other-algorithms-like-lsm-tree](https://stackoverflow.com/questions/4858706/are-there-other-algorithms-like-lsm-tree)
+    2025, [https://stackoverflow.com/questions/4858706/are-there-other-algorithms-like-barudb](https://stackoverflow.com/questions/4858706/are-there-other-algorithms-like-barudb)
 66. Scaling ScyllaDB Storage Engine with State-of-Art Compaction | PPT \- SlideShare, accessed April 19,
     2025, [https://www.slideshare.net/slideshow/scaling-scylladb-storage-engine-with-stateofart-compaction/255605081](https://www.slideshare.net/slideshow/scaling-scylladb-storage-engine-with-stateofart-compaction/255605081)
 67. LSM-based Storage Techniques: A Survey \- arXiv, accessed April 19,
@@ -347,7 +347,7 @@ ever-evolving demands of modern data management.
 68. Evaluating the potential of LSM-trees to supersede B-trees in databases \- NTNU Open, accessed April 19,
     2025, [https://ntnuopen.ntnu.no/ntnu-xmlui/handle/11250/2615833](https://ntnuopen.ntnu.no/ntnu-xmlui/handle/11250/2615833)
 69. Introduction to Log structured merge (LSM) Tree \- GeeksforGeeks, accessed April 19,
-    2025, [https://www.geeksforgeeks.org/introduction-to-log-structured-merge-lsm-tree/](https://www.geeksforgeeks.org/introduction-to-log-structured-merge-lsm-tree/)
+    2025, [https://www.geeksforgeeks.org/introduction-to-log-structured-merge-barudb/](https://www.geeksforgeeks.org/introduction-to-log-structured-merge-barudb/)
 70. Yes, write consistency is tricky in Multi-Version Concurrency Control databas... \- DEV Community, accessed April
     19, 2025, [https://dev.to/franckpachot/comment/2kh4a](https://dev.to/franckpachot/comment/2kh4a)
 71. Performance of range queries in B-Tree and LSM indexes \- DEV Community, accessed April 19,
@@ -370,7 +370,7 @@ ever-evolving demands of modern data management.
     2025, [https://news.ycombinator.com/item?id=9248298](https://news.ycombinator.com/item?id=9248298)
 80. Understanding Database Indexes And Their Data Structures: Hashes, SS-Tables, LSM Trees And B-Trees \- DEV Community,
     accessed April 19,
-    2025, [https://dev.to/aws-builders/understanding-database-indexes-and-their-data-structures-hashes-ss-tables-lsm-trees-and-b-trees-2dk5](https://dev.to/aws-builders/understanding-database-indexes-and-their-data-structures-hashes-ss-tables-lsm-trees-and-b-trees-2dk5)
+    2025, [https://dev.to/aws-builders/understanding-database-indexes-and-their-data-structures-hashes-ss-tables-barudbs-and-b-trees-2dk5](https://dev.to/aws-builders/understanding-database-indexes-and-their-data-structures-hashes-ss-tables-barudbs-and-b-trees-2dk5)
 81. Multi-Version Concurrency Control (MVCC) \- ydb.tech, accessed April 19,
     2025, [https://ydb.tech/docs/en/concepts/mvcc](https://ydb.tech/docs/en/concepts/mvcc)
 82. Building a Database series \- TMSVR, accessed April 19,
@@ -383,8 +383,8 @@ ever-evolving demands of modern data management.
 85. A Deep Dive into Database Concurrency Control \- Alibaba Cloud Community, accessed April 19,
     2025, [https://www.alibabacloud.com/blog/a-deep-dive-into-database-concurrency-control\_596779](https://www.alibabacloud.com/blog/a-deep-dive-into-database-concurrency-control_596779)
 86. How do LSM Tree based DBs deal with concurency when updating the MemTable, accessed April 19,
-    2025, [https://stackoverflow.com/questions/64015859/how-do-lsm-tree-based-dbs-deal-with-concurency-when-updating-the-memtable](https://stackoverflow.com/questions/64015859/how-do-lsm-tree-based-dbs-deal-with-concurency-when-updating-the-memtable)
+    2025, [https://stackoverflow.com/questions/64015859/how-do-barudb-based-dbs-deal-with-concurency-when-updating-the-memtable](https://stackoverflow.com/questions/64015859/how-do-barudb-based-dbs-deal-with-concurency-when-updating-the-memtable)
 87. \[Literature Review\] A survey of LSM-Tree based Indexes, Data Systems and KV-stores, accessed April 19,
-    2025, [https://www.themoonlight.io/review/a-survey-of-lsm-tree-based-indexes-data-systems-and-kv-stores](https://www.themoonlight.io/review/a-survey-of-lsm-tree-based-indexes-data-systems-and-kv-stores)
+    2025, [https://www.themoonlight.io/review/a-survey-of-barudb-based-indexes-data-systems-and-kv-stores](https://www.themoonlight.io/review/a-survey-of-barudb-based-indexes-data-systems-and-kv-stores)
 88. On Optimizing LSM-based Storage for Big Data Management Systems \- ASTERIX, accessed April 19,
     2025, [http://asterix.ics.uci.edu/thesis/chen\_thesis.pdf](http://asterix.ics.uci.edu/thesis/chen_thesis.pdf)

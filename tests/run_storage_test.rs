@@ -1,9 +1,9 @@
-use lsm_tree::run::{
+use barudb::run::{
     BlockCacheConfig, Error, FileStorage, Run, RunId, RunStorage, 
     StorageFactory, StorageOptions
 };
-use lsm_tree::run::cache_policies::CachePolicyType;
-use lsm_tree::types::{Key, StorageType};
+use barudb::run::cache_policies::CachePolicyType;
+use barudb::types::{Key, StorageType};
 use std::time::Duration;
 use tempfile::tempdir;
 
@@ -424,7 +424,7 @@ fn test_create_if_missing_false() {
 #[serial_test::serial] // Ensure this test runs in isolation
 fn test_block_cache() {
     use std::sync::Arc;
-    use lsm_tree::run::{BlockCache, set_global_block_cache};
+    use barudb::run::{BlockCache, set_global_block_cache};
     
     // Create a temporary directory for the test
     let temp_dir = tempdir().unwrap();

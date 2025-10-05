@@ -7,7 +7,7 @@ This guide provides a step-by-step demo script with talking points for presentin
 1. Ensure all dependencies are installed:
 
    ```bash
-   cd /Users/brian.sam-bodden/Documents/hes/CS-265/cs265-lsm-tree/
+   cd /Users/brian.sam-bodden/Documents/hes/CS-265/cs265-barudb/
    cargo build --release
    ```
 
@@ -30,7 +30,7 @@ This guide provides a step-by-step demo script with talking points for presentin
 **Terminal 1:**
 
 ```bash
-cd /Users/brian.sam-bodden/Documents/hes/CS-265/cs265-lsm-tree/
+cd /Users/brian.sam-bodden/Documents/hes/CS-265/cs265-barudb/
 ls -la src/
 ```
 
@@ -46,7 +46,7 @@ ls -la src/
 **Terminal 1:**
 
 ```bash
-cd /Users/brian.sam-bodden/Documents/hes/CS-265/cs265-lsm-tree/
+cd /Users/brian.sam-bodden/Documents/hes/CS-265/cs265-barudb/
 cargo run --release --bin fence_pointer_bench -- --help
 ```
 
@@ -58,7 +58,7 @@ cargo run --release --bin fence_pointer_bench -- --help
 
 ```bash
 # Run bloom filter benchmark
-cd /Users/brian.sam-bodden/Documents/hes/CS-265/cs265-lsm-tree/
+cd /Users/brian.sam-bodden/Documents/hes/CS-265/cs265-barudb/
 ./run_bloom_bench.sh
 ```
 
@@ -72,7 +72,7 @@ cd /Users/brian.sam-bodden/Documents/hes/CS-265/cs265-lsm-tree/
 **Show the results:**
 
 ```bash
-cd /Users/brian.sam-bodden/Documents/hes/CS-265/cs265-lsm-tree/target/criterion
+cd /Users/brian.sam-bodden/Documents/hes/CS-265/cs265-barudb/target/criterion
 find . -name "*/index.html" | grep bloom
 open $(find . -name "*/index.html" | grep bloom | head -1)
 ```
@@ -88,7 +88,7 @@ open $(find . -name "*/index.html" | grep bloom | head -1)
 **Terminal 1:**
 
 ```bash
-cd /Users/brian.sam-bodden/Documents/hes/CS-265/cs265-lsm-tree/
+cd /Users/brian.sam-bodden/Documents/hes/CS-265/cs265-barudb/
 cargo run --release --bin fence_pointer_bench -- --iterations=1000 --range-size=1000 --dataset-size=100000 --mode=comparative
 ```
 
@@ -102,7 +102,7 @@ cargo run --release --bin fence_pointer_bench -- --iterations=1000 --range-size=
 **Show the results or prepared charts:**
 
 ```bash
-cd /Users/brian.sam-bodden/Documents/hes/CS-265/cs265-lsm-tree/final_report/images
+cd /Users/brian.sam-bodden/Documents/hes/CS-265/cs265-barudb/final_report/images
 ls -la
 open fence_comparison_Throughput.png fence_range_comparison.png
 ```
@@ -119,7 +119,7 @@ open fence_comparison_Throughput.png fence_range_comparison.png
 **Terminal 2** (Server):
 
 ```bash
-cd /Users/brian.sam-bodden/Documents/hes/CS-265/cs265-lsm-tree/
+cd /Users/brian.sam-bodden/Documents/hes/CS-265/cs265-barudb/
 # Ensure we're using a clean database
 ./reset_db.sh
 # Start the server
@@ -136,7 +136,7 @@ cargo run --release --bin server
 **Terminal 3** (Client):
 
 ```bash
-cd /Users/brian.sam-bodden/Documents/hes/CS-265/cs265-lsm-tree/
+cd /Users/brian.sam-bodden/Documents/hes/CS-265/cs265-barudb/
 cargo run --release --bin client
 ```
 
@@ -166,7 +166,7 @@ g 101
 **Terminal 1:**
 
 ```bash
-cd /Users/brian.sam-bodden/Documents/hes/CS-265/cs265-lsm-tree/
+cd /Users/brian.sam-bodden/Documents/hes/CS-265/cs265-barudb/
 ls -la sota/
 ```
 
@@ -179,7 +179,7 @@ ls -la sota/
 **Show comparison results:**
 
 ```bash
-cd /Users/brian.sam-bodden/Documents/hes/CS-265/cs265-lsm-tree/sota/visualizations
+cd /Users/brian.sam-bodden/Documents/hes/CS-265/cs265-barudb/sota/visualizations
 ls -la
 open throughput_by_operation.png speedup_comparison.png
 ```
@@ -197,7 +197,7 @@ open throughput_by_operation.png speedup_comparison.png
 **Terminal 1:**
 
 ```bash
-cd /Users/brian.sam-bodden/Documents/hes/CS-265/cs265-lsm-tree/
+cd /Users/brian.sam-bodden/Documents/hes/CS-265/cs265-barudb/
 code src/run/eytzinger_layout.rs  # or use your preferred editor like vim, nano, etc.
 ```
 
@@ -272,7 +272,7 @@ for i in {1..1000}; do echo "p $i $(($i * 10))"; done | cargo run --release --bi
 **Terminal 1**:
 
 ```bash
-cd /Users/brian.sam-bodden/Documents/hes/CS-265/cs265-lsm-tree/
+cd /Users/brian.sam-bodden/Documents/hes/CS-265/cs265-barudb/
 cargo test --release --test storage_comparison_test -- concurrent_performance --nocapture
 ```
 

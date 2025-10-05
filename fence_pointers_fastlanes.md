@@ -2,7 +2,7 @@
 
 ## Overview
 
-The FastLane Fence Pointers implementation is a specialized data structure designed to optimize LSM tree lookups through improved cache locality and memory layout. This document summarizes the implementation, optimizations, and performance results.
+The FastLane Fence Pointers implementation is a specialized data structure designed to optimize BarúDB lookups through improved cache locality and memory layout. This document summarizes the implementation, optimizations, and performance results.
 
 ## Key Features
 

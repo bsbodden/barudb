@@ -1,8 +1,8 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use lsm_tree::run::{
+use barudb::run::{
     CompressedFencePointers, AdaptivePrefixFencePointers, TwoLevelFencePointers, StandardFencePointers
 };
-use lsm_tree::types::Key;
+use barudb::types::Key;
 use rand::{rngs::StdRng, Rng, SeedableRng};
 
 fn generate_random_keys(count: usize, seed: u64) -> Vec<Key> {

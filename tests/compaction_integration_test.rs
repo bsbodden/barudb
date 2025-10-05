@@ -1,5 +1,5 @@
-use lsm_tree::lsm_tree::{LSMTree, LSMConfig, DynamicBloomFilterConfig};
-use lsm_tree::types::{CompactionPolicyType, StorageType};
+use barudb::lsm_tree::{LSMTree, LSMConfig, DynamicBloomFilterConfig};
+use barudb::types::{CompactionPolicyType, StorageType};
 use tempfile::tempdir;
 
 fn create_test_tree(run_threshold: usize, policy_type: CompactionPolicyType) -> (LSMTree, tempfile::TempDir) {

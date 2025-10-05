@@ -1,5 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
-use lsm_tree::run::{
+use barudb::run::{
     Block, FileStorage, LSFStorage, Run, RunStorage, StorageOptions
 };
 use std::sync::Arc;

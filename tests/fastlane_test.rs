@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
-    use lsm_tree::run::{FastLaneFencePointers, StandardFencePointers};
-    use lsm_tree::types::Key;
+    use barudb::run::{FastLaneFencePointers, StandardFencePointers};
+    use barudb::types::Key;
     use rand::{rngs::StdRng, Rng, SeedableRng};
     use std::time::Instant;
 

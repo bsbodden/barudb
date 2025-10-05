@@ -1,5 +1,5 @@
-use lsm_tree::run::{BitPackCompression, CompressionStrategy, NoopCompression};
-use lsm_tree::types::{Key, Value};
+use barudb::run::{BitPackCompression, CompressionStrategy, NoopCompression};
+use barudb::types::{Key, Value};
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use std::time::Instant;

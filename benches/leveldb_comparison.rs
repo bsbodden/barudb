@@ -1,7 +1,7 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, SamplingMode};
-use lsm_tree::lsm_tree::{LSMTree, LSMConfig, DynamicBloomFilterConfig};
-use lsm_tree::types::{CompactionPolicyType, StorageType, Key, Value};
-use lsm_tree::run::{CompressionConfig, AdaptiveCompressionConfig, CompressionType};
+use barudb::lsm_tree::{LSMTree, LSMConfig, DynamicBloomFilterConfig};
+use barudb::types::{CompactionPolicyType, StorageType, Key, Value};
+use barudb::run::{CompressionConfig, AdaptiveCompressionConfig, CompressionType};
 
 // Conditional compilation for LevelDB
 #[cfg(feature = "use_leveldb")]

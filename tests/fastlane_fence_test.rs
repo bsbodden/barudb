@@ -1,8 +1,8 @@
-use lsm_tree::run::{
+use barudb::run::{
     SimpleFastLaneFencePointers, TwoLevelFastLaneFencePointers,
     StandardFencePointers, FastLaneFencePointers, FencePointersInterface
 };
-use lsm_tree::types::Key;
+use barudb::types::Key;
 use rand::{rngs::StdRng, Rng, SeedableRng};
 
 /// Basic test to check that all fence pointer implementations 

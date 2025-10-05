@@ -1,7 +1,7 @@
 #!/bin/bash
 # Convert ASCII architecture diagram to PNG
 
-cd /home/bsb/Code/hes/cs265-lsm-tree/final_report
+cd /home/bsb/Code/hes/barudb/final_report
 
 # Check if the text file exists
 if [ ! -f "images/architecture.txt" ]; then

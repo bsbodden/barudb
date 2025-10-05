@@ -5,7 +5,7 @@ OUTPUT_DIR="$(pwd)"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 
 echo "Running fence pointer benchmarks..."
-cd /home/bsb/Code/hes/cs265-lsm-tree
+cd /home/bsb/Code/hes/barudb
 
 # Run the benchmark and save raw output
 cargo bench --bench eytzinger_fence_bench | tee "${OUTPUT_DIR}/fence_bench_raw_${TIMESTAMP}.txt"

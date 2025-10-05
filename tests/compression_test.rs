@@ -1,8 +1,8 @@
-use lsm_tree::lsm_tree::{LSMConfig, LSMTree, DynamicBloomFilterConfig};
-use lsm_tree::run::compression::{
+use barudb::lsm_tree::{LSMConfig, LSMTree, DynamicBloomFilterConfig};
+use barudb::run::compression::{
     CompressionConfig, CompressionType, AdaptiveCompressionConfig, CompressionFactory
 };
-use lsm_tree::types::{Key, Value, CompactionPolicyType};
+use barudb::types::{Key, Value, CompactionPolicyType};
 use std::time::{Duration, Instant};
 use tempfile::tempdir;
 use std::collections::HashMap;

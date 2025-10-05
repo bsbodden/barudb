@@ -1,7 +1,7 @@
-use lsm_tree::run::{Run, RunStorage, StorageFactory, StorageOptions};
-use lsm_tree::level::Level;
-use lsm_tree::types::{Key, Value, CompactionPolicyType, StorageType};
-use lsm_tree::compaction::{CompactionPolicy, TieredCompactionPolicy, CompactionFactory};
+use barudb::run::{Run, RunStorage, StorageFactory, StorageOptions};
+use barudb::level::Level;
+use barudb::types::{Key, Value, CompactionPolicyType, StorageType};
+use barudb::compaction::{CompactionPolicy, TieredCompactionPolicy, CompactionFactory};
 use tempfile::tempdir;
 
 fn create_test_storage() -> (std::sync::Arc<dyn RunStorage>, tempfile::TempDir) {

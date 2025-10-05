@@ -1,12 +1,12 @@
 use criterion::{criterion_group, criterion_main, Criterion};
-use lsm_tree::lock_free_memtable::LockFreeMemtable;
-use lsm_tree::memtable::Memtable;
-use lsm_tree::run::{BlockCache, BlockCacheConfig, LockFreeBlockCache, LockFreeBlockCacheConfig};
-use lsm_tree::run::Block;
-use lsm_tree::run::RunId;
+use barudb::lock_free_memtable::LockFreeMemtable;
+use barudb::memtable::Memtable;
+use barudb::run::{BlockCache, BlockCacheConfig, LockFreeBlockCache, LockFreeBlockCacheConfig};
+use barudb::run::Block;
+use barudb::run::RunId;
 // Use the BlockKey from both standard and lock-free implementations
-use lsm_tree::run::block_cache::BlockKey as StdBlockKey;
-use lsm_tree::run::lock_free_block_cache::BlockKey as LFBlockKey;
+use barudb::run::block_cache::BlockKey as StdBlockKey;
+use barudb::run::lock_free_block_cache::BlockKey as LFBlockKey;
 use rand::prelude::*;
 use std::sync::Arc;
 use std::thread;

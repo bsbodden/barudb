@@ -1,8 +1,8 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, SamplingMode};
-use lsm_tree::types::{Key, Value};
-use lsm_tree::lsm_tree::{LSMTree, LSMConfig, DynamicBloomFilterConfig};
-use lsm_tree::run::{CompressionConfig, AdaptiveCompressionConfig, CompressionType};
-use lsm_tree::types::{CompactionPolicyType, StorageType};
+use barudb::types::{Key, Value};
+use barudb::lsm_tree::{LSMTree, LSMConfig, DynamicBloomFilterConfig};
+use barudb::run::{CompressionConfig, AdaptiveCompressionConfig, CompressionType};
+use barudb::types::{CompactionPolicyType, StorageType};
 use std::fs;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};

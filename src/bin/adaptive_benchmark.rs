@@ -1,5 +1,5 @@
-use lsm_tree::run::{AdaptiveFastLanePointers, StandardFencePointers, EytzingerFencePointers};
-use lsm_tree::types::Key;
+use barudb::run::{AdaptiveFastLanePointers, StandardFencePointers, EytzingerFencePointers};
+use barudb::types::Key;
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use std::time::Instant;
 

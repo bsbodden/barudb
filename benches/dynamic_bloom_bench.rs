@@ -1,6 +1,6 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, SamplingMode};
-use lsm_tree::lsm_tree::{LSMTree, LSMConfig, DynamicBloomFilterConfig};
-use lsm_tree::types::{Key, Value};
+use barudb::lsm_tree::{LSMTree, LSMConfig, DynamicBloomFilterConfig};
+use barudb::types::{Key, Value};
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use tempfile::tempdir;
 

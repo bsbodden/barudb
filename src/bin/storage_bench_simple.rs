@@ -1,4 +1,4 @@
-use lsm_tree::run::{
+use barudb::run::{
     FileStorage, LSFStorage, Run, RunStorage, StorageOptions
 };
 use std::sync::Arc;

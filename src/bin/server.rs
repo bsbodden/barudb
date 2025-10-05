@@ -1,6 +1,6 @@
-use lsm_tree::command::Command;
-use lsm_tree::lsm_tree::LSMTree;
-use lsm_tree::types::{CompactionPolicyType, StorageType};
+use barudb::command::Command;
+use barudb::lsm_tree::LSMTree;
+use barudb::types::{CompactionPolicyType, StorageType};
 use std::io;
 use std::io::BufRead;
 use std::io::{BufReader, Write};
@@ -12,7 +12,7 @@ use std::sync::{Arc, RwLock};
 fn send_response(stream: &mut TcpStream, response: &str) -> io::Result<()> {
     // Send response followed by END_OF_MESSAGE marker
     stream.write_all(response.as_bytes())?;
-    stream.write_all(lsm_tree::END_OF_MESSAGE.as_bytes())?;
+    stream.write_all(barudb::END_OF_MESSAGE.as_bytes())?;
     stream.flush()?;
     Ok(())
 }
@@ -334,7 +334,7 @@ fn main() -> io::Result<()> {
 
     // Create LSM tree with the configured options
     let compaction_policy_clone = compaction_policy.clone();
-    let config = lsm_tree::lsm_tree::LSMConfig {
+    let config = barudb::lsm_tree::LSMConfig {
         buffer_size,
         storage_type: StorageType::File,
         storage_path,
@@ -344,14 +344,14 @@ fn main() -> io::Result<()> {
         fanout,
         compaction_policy,
         compaction_threshold,
-        compression: lsm_tree::run::CompressionConfig::default(),
-        adaptive_compression: lsm_tree::run::AdaptiveCompressionConfig::default(),
+        compression: barudb::run::CompressionConfig::default(),
+        adaptive_compression: barudb::run::AdaptiveCompressionConfig::default(),
         collect_compression_stats: true,
         background_compaction: false,
         // Default values for lock-free implementations
         use_lock_free_memtable: false,  // Use standard sharded memtable by default
         use_lock_free_block_cache: true, // Use lock-free block cache by default
-        dynamic_bloom_filter: lsm_tree::lsm_tree::DynamicBloomFilterConfig::default(),
+        dynamic_bloom_filter: barudb::lsm_tree::DynamicBloomFilterConfig::default(),
     };
     
     println!("Starting server with configuration:");

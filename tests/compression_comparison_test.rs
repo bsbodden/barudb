@@ -1,4 +1,4 @@
-use lsm_tree::run::compression::{
+use barudb::run::compression::{
     CompressionStrategy, NoopCompression, DeltaCompression, BitPackCompression, 
     DictionaryCompression, Lz4Compression, SnappyCompression
 };

@@ -1,5 +1,5 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, SamplingMode};
-use lsm_tree::bloom::{Bloom, RocksDBLocalBloom, SpeedDbDynamicBloom, create_bloom_for_level};
+use barudb::bloom::{Bloom, RocksDBLocalBloom, SpeedDbDynamicBloom, create_bloom_for_level};
 use fastbloom::BloomFilter;
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use xxhash_rust::xxh3::xxh3_128;

@@ -1,5 +1,5 @@
-use lsm_tree::run::{CompressedFencePointers, AdaptivePrefixFencePointers, PrefixGroup, FencePointersInterface};
-use lsm_tree::types::Key;
+use barudb::run::{CompressedFencePointers, AdaptivePrefixFencePointers, PrefixGroup, FencePointersInterface};
+use barudb::types::Key;
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use std::collections::HashSet;
 use std::cmp::min;
@@ -410,8 +410,8 @@ fn test_adaptive_prefix_fence_pointers() {
 
 #[test]
 fn test_integrated_with_run() {
-    use lsm_tree::run::{Run, Block};
-    use lsm_tree::types::Value;
+    use barudb::run::{Run, Block};
+    use barudb::types::Value;
     
     // Create a run with test data
     let mut data = Vec::new();

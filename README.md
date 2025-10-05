@@ -1,15 +1,23 @@
-# LSM Tree Database (Rust Implementation)
+# BarúDB
 
-This repository contains a Rust implementation of an LSM tree key-value store, following the specifications from
-Harvard's CS265 Systems project. The implementation provides a client-server architecture for managing key-value data
-using a Log-Structured Merge Tree.
+![BarúDB Logo](docs/barudb.png)
+
+## A high-performance experimental LSM tree key-value store written in Rust
+
+Named after Volcán Barú, the highest peak in Panama (3,475m) and a symbol of strength and endurance from the Chiriquí region.
+
+## About
+
+BarúDB is a Rust implementation of a Log-Structured Merge (LSM) tree key-value store, originally developed as a research project for Harvard University's CS265 Data Systems course. The implementation provides a client-server architecture for managing key-value data with advanced optimizations including Monkey-optimized Bloom filters, multiple compaction strategies, and novel fence pointer designs.
+
+**Academic Origins**: This project was developed as part of Harvard's CS265 Systems course, implementing and evaluating modern LSM tree optimization techniques. The research findings, including comparative analyses of Bloom filter implementations and fence pointer designs, are documented in the academic reports included in this repository.
 
 ## Prerequisites
 
 ### Rust Installation
 
 You'll need Rust installed on your system. If you haven't installed Rust yet,
-see https://www.rust-lang.org/tools/install for installation options
+see <https://www.rust-lang.org/tools/install> for installation options
 
 The project requires Rust 1.81.0 or later.
 
@@ -19,7 +27,7 @@ Clone the repository and build using cargo:
 
 ```bash
 git clone [repository-url]
-cd lsm-tree
+cd barudb
 cargo build --release
 ```
 
@@ -56,6 +64,7 @@ The server command tests verify functionality of server commands like PrintStats
 ```
 
 This script will:
+
 1. Build the server if needed
 2. Start the server if not already running
 3. Run tests that verify PrintStats and Load command functionality
@@ -90,7 +99,7 @@ cargo bench
 To run a specific benchmark:
 
 ```bash
-# Run bloom filter benchmarks 
+# Run bloom filter benchmarks
 # Tests different bloom filter implementations (SpeedDB, RocksDB, etc.)
 cargo bench --bench bloom_bench
 
@@ -111,6 +120,7 @@ cargo run --release --bin benchmark_fastlane
 ```
 
 This benchmark compares performance across three key distribution patterns:
+
 - Sequential keys (e.g., timestamps, auto-incrementing IDs)
 - Random keys (high entropy)
 - Grouped keys (keys with common prefixes by group)
@@ -170,6 +180,7 @@ The database supports the following commands:
 The `l` (Load) command processes a file containing multiple commands, with each command on a separate line. It supports `p` (Put) and `d` (Delete) commands in the file.
 
 The `s` (PrintStats) command displays comprehensive statistics about the LSM tree, including:
+
 - Storage type and compaction policy
 - Buffer size and fanout configuration
 - Total storage size and file count
@@ -188,7 +199,7 @@ While the server is running, you can enter these commands in the server terminal
 ## Project Structure
 
 ```
-lsm-tree/
+barudb/
 ├── Cargo.toml
 ├── src/
 │   ├── bin/
@@ -291,6 +302,7 @@ Implemented Bloom filters that follow the optimization strategy described in the
 - The allocation follows an exponential decay pattern based on the fanout ratio
 
 This optimization provides several benefits:
+
 1. Reduces the overall memory footprint of Bloom filters
 2. Maintains low false positive rates for frequently accessed levels
 3. Accepts slightly higher false positive rates for rarely accessed levels
@@ -306,7 +318,7 @@ The implementation shows the following performance characteristics (with fanout=
 | 3     | 6.55           | 8,192 bytes               | 0.0000%             |
 | 4     | 3.28           | 4,096 bytes               | 0.1900%             |
 
-The bit allocation formula follows an exponential decay: for a given level `i` and fanout `T`, 
+The bit allocation formula follows an exponential decay: for a given level `i` and fanout `T`,
 bits per entry = 32.0 / T^(i/2), with a minimum of 2 bits per entry.
 
 This approach demonstrates a memory reduction of ~94% from level 0 to level 4, while maintaining excellent false positive rates even in the lowest levels.
@@ -327,6 +339,7 @@ pub struct TieredCompactionPolicy {
 ```
 
 **Characteristics**:
+
 - Lower write amplification (fewer rewrites during compaction)
 - Higher read amplification (must check multiple runs per level)
 - Good for write-heavy workloads
@@ -344,6 +357,7 @@ pub struct LeveledCompactionPolicy {
 ```
 
 **Characteristics**:
+
 - Higher write amplification (more rewrites during compaction)
 - Lower read amplification (at most one run per level)
 - Good for read-heavy workloads
@@ -361,6 +375,7 @@ pub struct LazyLeveledCompactionPolicy {
 ```
 
 **Characteristics**:
+
 - Level 0: Behaves like tiered compaction (multiple runs allowed)
 - Higher levels: Behaves like leveled compaction (single run per level)
 - Balances read and write performance
@@ -462,11 +477,13 @@ pub struct CompressedFencePointers {
 ```
 
 This compression approach is particularly effective for:
+
 - Sequential keys (e.g., timestamps or auto-incremented IDs)
 - Keys with natural grouping patterns (e.g., data from different sources with distinct prefixes)
 - Large fence pointer collections where memory efficiency is critical
 
 The implementation shows significant memory reduction compared to standard fence pointers:
+
 - Up to 70% memory reduction with sequential keys
 - 30-50% reduction with grouped keys
 - 10-20% reduction even with high-entropy random keys
@@ -503,16 +520,19 @@ pub struct FastLaneFencePointers {
 The FastLane implementation shows the following performance characteristics:
 
 **Sequential Keys**:
+
 - 100% key coverage
 - Memory usage: 21.24% less than standard implementation
 - Performance: 44.12% slower than standard implementation
 
 **Random Keys**:
+
 - 100% key coverage
 - Memory usage: 3.32% more than standard implementation
 - Performance: 1308.48% slower than standard implementation
 
 **Grouped Keys**:
+
 - 100% key coverage
 - Memory usage: 1.07% less than standard implementation
 - Performance: 94.55% slower than standard implementation
@@ -524,18 +544,29 @@ While the FastLane implementation provides perfect key coverage and good memory 
 3. **Hardware Limitations**: Optimal performance depends heavily on CPU features and cache characteristics
 
 Future optimizations should focus on:
+
 - **Specialized Binary Search**: Custom binary search algorithm optimized for the lane structure
 - **SIMD Vectorization**: Using vector instructions to process multiple keys at once
 - **Memory Alignment**: Ensuring optimal alignment for CPU cache lines
 - **Branch Prediction Hints**: Adding hints to help CPU predict branch directions
 
 The data-oriented layout provides these benefits through:
+
 1. **Separating Comparison Data**: Keeps min/max key values in separate lanes
 2. **Explicit Prefetching**: Loads data into cache before it's needed during binary search
 3. **Cache-Friendly Grouping**: Organizes related data in memory for better cache utilization
 4. **Reduced Cache Misses**: Lane-based layout minimizes cache misses during traversal
 
 This optimization combines the memory efficiency of prefix compression with the performance benefits of data-oriented design. The implementation includes an adaptive variant (`AdaptiveFastLaneFencePointers`) that dynamically adjusts itself based on access patterns.
+
+## Academic Research
+
+This project includes detailed academic reports documenting the research and evaluation:
+
+- `final_report/final_report.md` - Complete analysis of LSM tree optimizations
+- `midway_report/midway-report.md` - Mid-project progress report
+
+These reports provide in-depth analysis of Bloom filter implementations, compaction strategies, and fence pointer designs.
 
 ## Contributing
 
@@ -544,3 +575,12 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 ## License
 
 This project is open source and available under the MIT License.
+
+## Citation
+
+If you use BarúDB in your research, please cite:
+
+```
+Sam-Bodden, B. (2025). BarúDB: A High-Performance LSM Tree Key-Value Store in Rust.
+Harvard University CS265 Data Systems Course Project.
+```

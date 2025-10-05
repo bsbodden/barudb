@@ -23,9 +23,9 @@ fn receive_response(stream: &mut TcpStream) -> io::Result<String> {
             }
             Ok(n) => {
                 response.push_str(&String::from_utf8_lossy(&buffer[..n]));
-                if response.ends_with(lsm_tree::END_OF_MESSAGE) {
+                if response.ends_with(barudb::END_OF_MESSAGE) {
                     // Remove the END_OF_MESSAGE marker and return
-                    response.truncate(response.len() - lsm_tree::END_OF_MESSAGE.len());
+                    response.truncate(response.len() - barudb::END_OF_MESSAGE.len());
                     return Ok(response);
                 }
             }

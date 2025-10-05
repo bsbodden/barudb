@@ -122,7 +122,7 @@ echo "Dependencies installed successfully."
 
 # Update the Cargo.toml file
 echo "Updating your Cargo.toml to enable RocksDB..."
-sed -i.bak 's/# rocksdb = "0.21.0"/rocksdb = "0.21.0"/' /home/bsb/Code/hes/cs265-lsm-tree/Cargo.toml
+sed -i.bak 's/# rocksdb = "0.21.0"/rocksdb = "0.21.0"/' /home/bsb/Code/hes/barudb/Cargo.toml
 
 echo ""
 echo "You can now run the benchmark with:"

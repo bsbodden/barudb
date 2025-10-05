@@ -1,8 +1,8 @@
-use lsm_tree::lsm_tree::{LSMTree, LSMConfig};
-use lsm_tree::types::{CompactionPolicyType, StorageType};
-use lsm_tree::compaction::{SelectionStrategy, PartialTieredCompactionPolicy, CompactionPolicy};
-use lsm_tree::level::Level;
-use lsm_tree::run::Run;
+use barudb::lsm_tree::{LSMTree, LSMConfig};
+use barudb::types::{CompactionPolicyType, StorageType};
+use barudb::compaction::{SelectionStrategy, PartialTieredCompactionPolicy, CompactionPolicy};
+use barudb::level::Level;
+use barudb::run::Run;
 use tempfile::tempdir;
 
 fn create_test_tree(run_threshold: usize, policy_type: CompactionPolicyType) -> (LSMTree, tempfile::TempDir) {

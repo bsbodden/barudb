@@ -1,5 +1,5 @@
-use lsm_tree::run::{AdaptiveFastLanePointers, StandardFencePointers};
-use lsm_tree::types::Key;
+use barudb::run::{AdaptiveFastLanePointers, StandardFencePointers};
+use barudb::types::Key;
 use std::time::Instant;
 
 /// Diagnostic test to verify that adaptive fastlane is correctly delegating to standard

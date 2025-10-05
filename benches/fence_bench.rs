@@ -1,6 +1,6 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use lsm_tree::run::{FencePointers, StandardFencePointers, TwoLevelFencePointers};
-use lsm_tree::types::Key;
+use barudb::run::{FencePointers, StandardFencePointers, TwoLevelFencePointers};
+use barudb::types::Key;
 use rand::{rngs::StdRng, Rng, SeedableRng};
 
 #[cfg(target_arch = "x86_64")]

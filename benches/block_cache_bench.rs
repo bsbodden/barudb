@@ -1,7 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
-use lsm_tree::run::{cache_policies::CachePolicyType, block_cache::{BlockCache, BlockCacheConfig}, 
+use barudb::run::{cache_policies::CachePolicyType, block_cache::{BlockCache, BlockCacheConfig}, 
                    Block, RunId, lock_free_block_cache::{LockFreeBlockCache, LockFreeBlockCacheConfig}};
-use lsm_tree::run::lock_free_cache_policies::CachePriority;
+use barudb::run::lock_free_cache_policies::CachePriority;
 use std::sync::Arc;
 use std::time::Duration;
 use std::sync::atomic::{AtomicUsize, Ordering};

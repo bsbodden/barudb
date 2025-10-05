@@ -118,11 +118,11 @@ To use the lock-free implementations in your LSM tree:
 
 ```rust
 // For memtable
-use lsm_tree::lock_free_memtable::LockFreeMemtable;
+use barudb::lock_free_memtable::LockFreeMemtable;
 let memtable = LockFreeMemtable::new(100); // 100 pages
 
 // For block cache
-use lsm_tree::run::{LockFreeBlockCache, LockFreeBlockCacheConfig};
+use barudb::run::{LockFreeBlockCache, LockFreeBlockCacheConfig};
 let config = LockFreeBlockCacheConfig::default();
 let cache = LockFreeBlockCache::new(config);
 ```

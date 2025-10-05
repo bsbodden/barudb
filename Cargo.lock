@@ -119,6 +119,38 @@ dependencies = [
 ]
 
 [[package]]
+name = "barudb"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "criterion",
+ "crossbeam-skiplist",
+ "csv",
+ "env_logger",
+ "fastbloom",
+ "fastrand",
+ "leveldb",
+ "lmdb",
+ "lmdb-rkv",
+ "lz4",
+ "once_cell",
+ "page_size",
+ "rand 0.9.1",
+ "rand_distr",
+ "rayon",
+ "rocksdb",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "snap",
+ "tempfile",
+ "tokio",
+ "wide",
+ "wiredtiger-sys",
+ "xxhash-rust",
+]
+
+[[package]]
 name = "bindgen"
 version = "0.65.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -903,38 +935,6 @@ name = "log"
 version = "0.4.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "04cbf5b083de1c7e0222a7a51dbfdba1cbe1c6ab0b15e29fff3f6c077fd9cd9f"
-
-[[package]]
-name = "lsm-tree"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "criterion",
- "crossbeam-skiplist",
- "csv",
- "env_logger",
- "fastbloom",
- "fastrand",
- "leveldb",
- "lmdb",
- "lmdb-rkv",
- "lz4",
- "once_cell",
- "page_size",
- "rand 0.9.1",
- "rand_distr",
- "rayon",
- "rocksdb",
- "serde",
- "serde_json",
- "serial_test",
- "snap",
- "tempfile",
- "tokio",
- "wide",
- "wiredtiger-sys",
- "xxhash-rust",
-]
 
 [[package]]
 name = "lz4"

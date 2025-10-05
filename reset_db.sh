@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Reset LSM Tree Database
+# Reset BarúDB Database
 # This script removes all database files to start with a fresh state
 
 echo "Removing existing database files..."

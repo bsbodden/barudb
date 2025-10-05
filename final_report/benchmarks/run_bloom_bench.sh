@@ -5,7 +5,7 @@ OUTPUT_DIR="$(pwd)"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 
 echo "Running bloom filter benchmarks..."
-cd /home/bsb/Code/hes/cs265-lsm-tree
+cd /home/bsb/Code/hes/barudb
 
 # Run the benchmark with a time limit of 5 minutes
 timeout 300 cargo bench --bench bloom_bench | tee "${OUTPUT_DIR}/bloom_bench_raw_${TIMESTAMP}.txt"

@@ -1,6 +1,6 @@
 use criterion::{criterion_group, criterion_main, Criterion};
-use lsm_tree::run::{EytzingerFencePointers, StandardFencePointers, FastLaneFencePointers};
-use lsm_tree::types::Key;
+use barudb::run::{EytzingerFencePointers, StandardFencePointers, FastLaneFencePointers};
+use barudb::types::Key;
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use std::time::Instant;
 
